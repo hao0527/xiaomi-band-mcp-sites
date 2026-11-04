@@ -52,3 +52,9 @@ Actual deployed API/native-MCP verification is reported separately from the synt
 ## Deployment check
 
 On the owner-private Worker, a real cached record was successfully reconstructed across multiple chunks, preserved the full source value structure, removed the outer device identifier and matched an existing verified source value. Date/metric coverage returned separate cache/request outcomes with upload completeness unknown. The existing native get_metric_records call returned the added references. The current conversation tool catalog has not refreshed the new tool, so a direct native get_raw_record invocation remains unverified; Worker/API checks are not substituted for that claim. No new Xiaomi requests were performed.
+
+## Source-preservation extension
+
+get_raw_record 新增可选 component：metric_record（兼容默认）、activity_operational（脱敏完整运动附加响应）、ingestion_quarantine（隔离原文，引用见 get_sync_status.quarantine.latest）。非默认组件仍使用相同分块规则与组件范围的快照哈希。隔离原文 recorded_at/stored_date_cn 为null，原始错误值在JSON中，请求窗口另行说明；不得把窗口当成有效源时间。旧仅投影运动缓存明确返回 legacy_projected_cache_no_raw_response，不在只读调用中触发网络补采。
+
+覆盖查询现增加 source_records_quarantined，区别于成功空页；同步进度可报告 partial_data/completed_with_errors。详见 [SOURCE_PRESERVATION.md](SOURCE_PRESERVATION.md)。

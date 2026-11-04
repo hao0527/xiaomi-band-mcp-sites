@@ -20,10 +20,15 @@ Repair shares the live/history lease and checks ownership before requests and so
 
 Authentication failure, unexpected non-200, 429, network uncertainty, malformed response or preservation failure stops immediately. A failed attempt leaves the old operational cache, sport raw/version rows and native file cache untouched. Full successful redacted content and its version are written through the same path as future operational fetches. Unknown strings, long arrays and zeros survive; credential/identity/location/URL redactions remain explicit.
 
-Empty successful source is preserved as {}, marked completed_empty_response, and never called recovered historical fields. An empty new projection does not overwrite an existing useful legacy projection during repair. Metadata identifies that retained projection and its original fetch time; get_activity_detail adds operational_projection provenance. Raw fetch time and retained projection time must not be conflated.
+A successful source containing only nulls, empty strings/arrays/objects is preserved unchanged and marked completed_empty_response; zero and false remain source content. Empty responses are never called recovered historical fields. An empty new projection does not overwrite an existing useful legacy projection during repair. Metadata identifies that retained projection and its original fetch time; get_activity_detail adds operational_projection provenance. Raw fetch time and retained projection time must not be conflated.
 
 ## Validation contract
 
 The synthetic suite covers selected-only writes, protected-table and checkpoint preservation, complete long source reconstruction, versions, cache reuse, the shared ordinary-new-response path, failed/interrupted claim reuse, auth/HTTP/network stopping, empty response/projection provenance, source validation, no extra MCP tools, Worker authorization and additive migration from the preceding schema. No production synthetic health record is used.
 
 For the initial private verification, the owner-authorized target is the cached 2026-11-03 workout. The same one-login/one-detail budget applies. Actual Worker/native/cloud results are recorded separately after execution. New-record automatic ingestion remains a separate real verification until a genuinely new workout exists; a historical refetch must not be presented as that end-to-end proof.
+
+
+## Structural empty-content classification
+
+A real response exposed a distinction between raw JSON being present and containing nonempty source values. Readers recompute source_response_empty using rule no_nonempty_leaf_v1 after privacy redaction. Nulls and empty strings/containers are empty under this structural rule; numbers including zero, false and nonempty strings are not. This is not a health assessment or a device-support inference. Raw bytes/values, snapshot hashes, source timestamps and versions are not rewritten to correct older root-key-only metadata. get_activity_detail adds operational_response_empty; cache-first repair reads expose the same flag without network.

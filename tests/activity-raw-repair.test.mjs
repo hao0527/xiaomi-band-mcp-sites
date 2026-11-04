@@ -28,7 +28,7 @@ function fixture(mode='complete'){
   counts.health++;assert.equal(u.pathname,'/app/v1/operate/get_sport_operational_data');
   if(mode==='network')throw Error('synthetic uncertain network');if([401,429,500,204].includes(mode))return new Response(null,{status:mode});
   if(mode==='broken')return new Response('{broken');if(mode==='business')return Response.json({code:1,message:'synthetic failure'});
-  return Response.json({code:0,result:mode==='empty'?{}:source()});
+  return Response.json({code:0,result:mode==='empty'?{}:mode==='null_fields'?{synthetic_empty_a:null,synthetic_empty_b:[]}:mode==='zero_fields'?{zero:0,flag:false}:source()});
  }};
 }
 async function fullRaw(){let offset=0,hash,parts=[];do{const r=await rawRecord(env(),ref,offset,4096,hash,'activity_operational');assert.equal(r.status,'available');parts.push(r.raw_json_chunk);hash??=r.snapshot_hash;offset=r.next_offset;}while(offset!==null);return JSON.parse(parts.join(''));}
@@ -58,6 +58,18 @@ for(const [mode,code] of [[401,'AUTH_EXPIRED'],[429,'UPSTREAM_RATE_LIMITED'],[50
 test('successful empty response is preserved as empty, retains old projection with explicit provenance and does not assert restored fields',async()=>{
  const r=await repairActivityRaw(env(),ref,fixture('empty').transport);assert.equal(r.status,'completed_empty_response');assert.equal(r.storage.source_response_empty,true);assert.equal(r.storage.projection_retained,true);assert.deepEqual(await fullRaw(),{});
  const d=await activityDetail(env(),ref);assert.equal(d.operational_data.kept_numeric,17);assert.equal(d.operational_projection.status,'retained_existing_projection_empty_new_projection');assert.equal(d.operational_projection.source_fetched_at,7);
+});
+test('null/empty-only source is empty content while raw is still available, and zero/false remain data',async()=>{
+ const r=await repairActivityRaw(env(),ref,fixture('null_fields').transport);assert.equal(r.status,'completed_empty_response');assert.equal(r.storage.projection_retained,true);
+ const raw=await rawRecord(env(),ref,0,8192,undefined,'activity_operational');assert.equal(raw.preservation.source_response_empty,true);assert.deepEqual(JSON.parse(raw.raw_json_chunk),{synthetic_empty_a:null,synthetic_empty_b:[]});
+ assert.equal((await activityDetail(env(),ref)).operational_response_empty,true);assert.equal((await readActivityRawRepair(env(),ref)).source_response_empty,true);
+ await repairActivityRaw(env(),'synthetic-other-legacy',fixture('zero_fields').transport);const zero=await rawRecord(env(),'synthetic-other-legacy',0,8192,undefined,'activity_operational');assert.equal(zero.preservation.source_response_empty,false);assert.deepEqual(JSON.parse(zero.raw_json_chunk),{zero:0,flag:false});
+});
+test('legacy emptiness metadata is corrected on read without rewriting cached bytes or versions',async()=>{
+ await db.prepare('UPDATE activity_details SET raw_json=?,raw_meta_json=? WHERE record_ref=?').bind('{"synthetic_empty":null}','{"source_response_empty":false,"raw_fetched_at":7}',ref).run();
+ const before=await db.prepare('SELECT * FROM activity_details WHERE record_ref=?').bind(ref).first(),versions=(await db.prepare('SELECT * FROM activity_detail_versions').all()).results;
+ const r=await rawRecord(env(),ref,0,8192,undefined,'activity_operational');assert.equal(r.preservation.source_response_empty,true);assert.equal(r.preservation.source_response_empty_rule,'no_nonempty_leaf_v1');
+ assert.equal((await repairActivityRaw(env(),ref,()=>{throw Error('NO_NETWORK');})).source_response_empty,true);assert.deepEqual(await db.prepare('SELECT * FROM activity_details WHERE record_ref=?').bind(ref).first(),before);assert.deepEqual((await db.prepare('SELECT * FROM activity_detail_versions').all()).results,versions);
 });
 test('already available, active lease, disabled sync, unindexable source and invalid references cannot log in',async()=>{
  await db.prepare('UPDATE activity_details SET raw_json=\'{}\' WHERE record_ref=?').bind(ref).run();assert.equal((await repairActivityRaw({...env(),MI_PASS_TOKEN:undefined},ref,()=>{throw Error('NO_LOGIN');})).status,'already_available');

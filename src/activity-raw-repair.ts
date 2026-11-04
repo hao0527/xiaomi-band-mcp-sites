@@ -3,6 +3,7 @@ import type {RawRecord} from './collector/models.js';
 import {MiFitnessAdapter,SPORT_OPERATIONAL_PATH} from './collector/adapter.js';
 import {CollectorError,nativeFetcher,type Fetcher} from './collector/http.js';
 import {operationalRequest,preserveOperationalResponse} from './activity-details.js';
+import {redactRawRecord,sourceResponseEmpty} from './raw-record-reader.js';
 
 function validateRef(ref:string){if(typeof ref!=='string'||!/^[A-Za-z0-9+/_=-]{8,100}$/.test(ref))throw new CollectorError('INVALID_RECORD_REF');}
 const errors=new Set(['AUTH_EXPIRED','LOGIN_REJECTED','LOGIN_HTTP_ERROR','STS_HTTP_ERROR','SERVICE_TOKEN_MISSING','INTERACTIVE_AUTH_REQUIRED','NETWORK_FAILURE','UPSTREAM_RATE_LIMITED','UPSTREAM_HTTP_ERROR','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','RAW_REDACTION_LIMIT','REPAIR_REQUEST_LIMIT','REPAIR_TIME_LIMIT','SYNC_LEASE_LOST']);
@@ -11,7 +12,7 @@ export async function readActivityRawRepair(env:PersistentEnv,ref:string){
  const source=await d.prepare("SELECT date_cn FROM raw_records WHERE metric='sport' AND record_id=?").bind(ref).first<{date_cn:string}>();if(!source)return {status:'not_found',eligible:false,raw_response_available:false,network_requests_performed:false};
  const cache=await d.prepare('SELECT status,raw_json,raw_meta_json FROM activity_details WHERE record_ref=?').bind(ref).first<{status:string;raw_json:string|null;raw_meta_json:string|null}>();
  const prior=await d.prepare('SELECT status,audit_json FROM activity_raw_repairs WHERE record_ref=?').bind(ref).first<{status:string;audit_json:string}>();
- if(cache?.raw_json)return {status:'already_available',eligible:false,raw_response_available:true,source_date:source.date_cn,cached:true,repair_status:prior?.status??null,network_requests_performed:false};
+ if(cache?.raw_json){let empty:boolean|null=null;try{empty=sourceResponseEmpty(redactRawRecord(JSON.parse(cache.raw_json)).value);}catch{}return {status:'already_available',eligible:false,raw_response_available:true,source_response_empty:empty,source_date:source.date_cn,cached:true,repair_status:prior?.status??null,network_requests_performed:false};}
  if(prior)return {...JSON.parse(prior.audit_json),status:prior.status,eligible:false,cached:true,network_requests_performed:false,next_action:'inspect_saved_attempt_do_not_retry_login'};
  return {status:cache?.status==='fetched'?'legacy_raw_missing':'not_legacy_projected_cache',eligible:cache?.status==='fetched',raw_response_available:false,source_date:source.date_cn,cached:true,network_requests_performed:false};
 }

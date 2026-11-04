@@ -52,3 +52,12 @@ The operator-only audit is separate from MCP and normal ingestion. An additive D
 Native get_raw_record accepted metric_record, activity_operational and ingestion_quarantine. Ordinary raw was reconstructed through all chunks. The old workout remains legacy_projected_cache_no_raw_response. Production quarantine is empty: populated quarantine retrieval and null source time are still synthetic-only checks. No fake record was inserted.
 
 Legacy raw repair and late-upload review were evaluated with separate independent-queue/request-budget/stop proposals, but not implemented or run. Do not portray them as resumable working features or turn the audit endpoint into a general sync/backfill endpoint. Continue with a separately scoped implementation only if needed; preserve live/history state and reuse operational/native caches.
+
+
+## Current follow-on: MCP surface consolidation
+
+PR #3 and #4 were merged; this stage starts from main 671f73b2985da13a360c818fbeecb9c32f857005, branch mcp-surface-20261104. Default discovery now advertises ten source/read tools while all twenty old names remain callable through their original compatible dispatcher. Read docs/MCP_SURFACE.md and tests/mcp-surface.test.mjs before changing these contracts.
+
+New get_metric_records(metrics=[...]) defaults to 200 compact records with page-local metadata_sets; old metric=... defaults and full shape are unchanged. Include both heart_rate and resting_heart_rate to replace the old combined reader. Metadata is grouped by complete content, preserving differing units/confidence. New get_daily_summary(start_date,end_date) reads at most seven days through the current daily cache reader; the old date mode and compatibility weekly report are unchanged. No collection, schema, checkpoint, privacy gate or P0 arithmetic changes, and no Xiaomi request is part of this stage.
+
+This runtime was deployed as v25. Both checkouts passed typecheck and 128 synthetic tests; actual native multi-metric, compact reconstruction, cursor continuation, raw reference and seven-day reads passed. The current host still caches the old twenty-name catalog; do not confuse it with the ten-name tools/list served by the tested Worker. See MCP_SURFACE.md for the production discovery verification limit and the service-bearer 401 boundary. Do not forge identity headers or relax authentication to inspect tools/list.

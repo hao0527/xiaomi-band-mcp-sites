@@ -41,7 +41,7 @@ App 需要先把手环数据上传到云端；MCP 不连接蓝牙，不控制手
 | 睡眠 HRV 源字段 | 缓存分页读取；五个汇总字段按所有者 App 对账为 ms，其余单位与算法未验证。见 [HRV说明](docs/HRV_SOURCE_PASSTHROUGH.md) |
 | 未知恢复单位等 | 保留原值、不猜单位 |
 
-**没有实现完整原始 JSON 的 MCP 透传。** 普通查询返回规范化字段；运动 operational 详情还存在字段过滤、数组截断等限制。详见 [已知限制](docs/LIMITATIONS.md)。
+`get_raw_record` 分块读取已保留的脱敏完整源 JSON；普通查询仍是规范化视图。新抓取的运动 operational 响应另存完整脱敏原文；旧投影缓存缺失的原文不能凭空恢复。详见 [原文契约](docs/RAW_READ_AND_COVERAGE.md) 和 [已知限制](docs/LIMITATIONS.md)。
 
 ## 复现前提
 
@@ -85,12 +85,12 @@ npm test
 
 ## MCP工具
 
-共有19项工具，见 [工具清单与调用流程](docs/MCP.md)。常用：
+默认目录展示 **10项工具**，旧20个名称保留兼容调用。见 [工具清单与调用流程](docs/MCP.md) 和 [目录收敛说明](docs/MCP_SURFACE.md)：
 
 - `trigger_sync`、`get_sync_progress`、`get_sync_status`
-- `list_available_metrics`、`get_metric_records`
-- `get_daily_summary`、`get_sleep_records`、`get_heart_rate`
-- `get_activity_records`、`get_activity_detail`
+- `list_available_metrics`、`get_metric_records`（单/多指标，紧凑元数据）、`get_raw_record`
+- `get_daily_summary`（单日或最多7日事实数据）、`get_hrv_trend`（睡眠HRV源字段）
+- `get_activity_detail`：运动列表先用 `get_metric_records(metrics=["sport"])` 读取
 - `get_activity_heart_rate_samples`：通过 `next_offset` 读完整缓存曲线
 
 查询工具只读取 D1 缓存；`trigger_sync` 是唯一标为写入的 MCP 工具。AI应主动把“缓存没有数据”“尚未同步”“云端成功返回空结果”和“接口失败”分开，不编造缺失指标。
@@ -109,6 +109,6 @@ npm test
 
 ## 贡献与后续方向
 
-优先处理实际字段丢失、缓存可读性、已知渠道覆盖和历史完整性。保留未知原值，不猜单位；不为了扩展架构而重写正常功能，也不为了工具数量增加接口。当前实现保留兼容摘要/分析入口，但不把它们作为未来开发重点。
+优先处理实际字段丢失、缓存可读性、已知渠道覆盖和历史完整性。保留未知原值，不猜单位；不为了扩展架构而重写正常功能，也不为了工具数量增加接口。既有周报告、审计、分析和重复明细入口只保留兼容分发，退出默认工具目录。
 
 MIT，详见 [LICENSE](LICENSE) 与 [NOTICE.md](NOTICE.md)。保留全部上游版权声明。与小米或 OpenAI 无隶属或背书关系。

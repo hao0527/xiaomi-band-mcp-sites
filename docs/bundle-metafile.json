@@ -341,7 +341,7 @@
       "format": "esm"
     },
     "src/persistence.ts": {
-      "bytes": 36251,
+      "bytes": 41310,
       "imports": [
         {
           "path": "src/ingestion-quarantine.ts",
@@ -846,7 +846,7 @@
           "bytesInOutput": 3123
         },
         "src/persistence.ts": {
-          "bytesInOutput": 39011
+          "bytesInOutput": 44605
         },
         "src/workout-decoder.ts": {
           "bytesInOutput": 2906
@@ -891,7 +891,7 @@
           "bytesInOutput": 2655
         }
       },
-      "bytes": 219097
+      "bytes": 224691
     }
   }
 }

@@ -2,30 +2,24 @@
 
 Sites原生托管 `/mcp`，平台认证，不对公网提供无鉴权工具。`server/discover`、`initialize`、`tools/list`、`tools/call` 使用当前实现的MCP 2026-07-28。工具返回结构化JSON与文本content；错误返回isError。
 
+默认目录展示以下10项工具，旧20个工具名仍保留兼容调用；迁移与紧凑返回契约见 [MCP目录收敛](MCP_SURFACE.md)。
+
 | 工具 | 参数摘要 | 行为 |
 |---|---|---|
 | trigger_sync | sync_id?、retry_failed? | 唯一MCP写入工具，今天/昨天有界增量 |
-| get_sync_progress | sync_id? | 只读当前运行进度和时效 |
-| get_sync_status | 日期范围?、metric? | 不传参数兼容原状态；可选最多31天逐日缓存覆盖与请求结果 |
-| get_raw_record | record_ref、component?、offset?、limit?、snapshot_hash? | 分块读取脱敏原始JSON；未知字段/长数组保留，快照变动必须重读 |
-| list_available_metrics | 无 | 21类配置渠道的缓存/检查状态 |
-| get_metric_records | metric、start_date、end_date、cursor?、limit? | 通用已配置指标明细 |
-| get_sleep_records | 日期范围、cursor?、limit? | 睡眠与分期 |
-| get_heart_rate | 日期范围、cursor?、limit? | 全天/静息心率 |
-| get_activity_records | 日期范围、cursor?、limit? | 运动列表，返回record_ref |
-| get_activity_detail | record_ref、include_samples?、sample_limit? | 摘要、operational缓存与可选心率 |
-| get_activity_heart_rate_samples | record_ref、offset?、limit? | 原生曲线分页；不可用时分钟级回退 |
-| get_steps_records | 日期范围、cursor?、limit? | 源步数/距离/消耗采样，不是全天总数 |
-| get_spo2_records | 日期范围、cursor?、limit? | 血氧 |
-| get_stress_records | 日期范围、cursor?、limit? | 源压力评分 |
-| get_body_measurements | 日期范围、cursor?、limit? | 体重/体成分源字段，单位按可信度 |
-| get_steps_audit | start_date、end_date | 最多31天，对比私有App参考 |
-| get_daily_summary | date | 兼容每日汇总；不能替代明细 |
-| get_weekly_report | date | 兼容七日已存摘要 |
-| get_activity_heart_rate_analysis | record_ref | 兼容缓存统计；不推断组间恢复 |
-| get_hrv_trend | 日期范围、cursor?、limit? | 缓存睡眠 HRV 源字段；逐字段单位/对账元数据，算法未验证，保留零占位 |
+| get_sync_progress | sync_id? | 当前同步任务进度和后续动作 |
+| get_sync_status | 日期范围?、metric? | 全局缓存状态及最多31天逐日覆盖 |
+| list_available_metrics | 无 | 21类配置渠道及缓存/检查状态 |
+| get_metric_records | metrics或metric、日期范围、cursor?、limit?、compact? | 通用单/多指标明细，返回record_ref |
+| get_raw_record | record_ref、component?、offset?、limit?、snapshot_hash? | 脱敏原文分块、快照校验 |
+| get_daily_summary | date或start_date/end_date | 原单日完整数据，或最多7日精简事实数据 |
+| get_hrv_trend | 日期范围、cursor?、limit? | 睡眠HRV源字段；逐字段单位/对账元数据，不计算趋势 |
+| get_activity_detail | record_ref、include_samples?、sample_limit? | 单次运动、operational缓存和来源标记 |
+| get_activity_heart_rate_samples | record_ref、offset?、limit? | 原生曲线分页；不可用时明确标记分钟级回退 |
 
-日期为Asia/Shanghai的YYYY-MM-DD。普通分页参数每页1—2000，默认2000。心率工具范围最多31天；普通明细90天；步数审计31天。具体JSON schema以部署的tools/list为准。
+日期使用Asia/Shanghai的YYYY-MM-DD。新metrics调用默认每页200条、compact=true；包含heart_rate/resting_heart_rate时最多31天，其余90天。紧凑记录的metadata_ref需在同一页metadata_sets解析，不能跨页复用。旧metric调用保持每页2000条、完整元数据及原90天范围。所有明细limit上限仍为2000，具体schema以部署tools/list为准。
+
+兼容调用保留get_sleep_records、get_heart_rate、get_activity_records、get_steps_records、get_spo2_records、get_stress_records、get_body_measurements、get_weekly_report、get_steps_audit、get_activity_heart_rate_analysis；它们退出默认目录，但不改原响应或鉴权。用metrics=["heart_rate","resting_heart_rate"]替代旧组合心率入口。日报范围从当前缓存重建；旧周报告仍读取已存日报，两者不混同。
 
 ## 同步调用状态机
 

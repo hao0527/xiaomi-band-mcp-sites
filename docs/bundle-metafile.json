@@ -1,0 +1,897 @@
+{
+  "inputs": {
+    "src/collector/http.ts": {
+      "bytes": 3873,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/raw-record-reader.ts": {
+      "bytes": 7545,
+      "imports": [
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/collector/crypto.ts": {
+      "bytes": 3957,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/collector/auth.ts": {
+      "bytes": 4880,
+      "imports": [
+        {
+          "path": "src/collector/crypto.ts",
+          "kind": "import-statement",
+          "original": "./crypto.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/hrv-source.ts": {
+      "bytes": 3738,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/sleep-normalizer.ts": {
+      "bytes": 5706,
+      "imports": [
+        {
+          "path": "src/hrv-source.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/collector/parser.ts": {
+      "bytes": 6556,
+      "imports": [
+        {
+          "path": "src/sleep-normalizer.ts",
+          "kind": "import-statement",
+          "original": "../sleep-normalizer.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/collector/adapter.ts": {
+      "bytes": 6089,
+      "imports": [
+        {
+          "path": "src/collector/crypto.ts",
+          "kind": "import-statement",
+          "original": "./crypto.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./http.js"
+        },
+        {
+          "path": "src/collector/auth.ts",
+          "kind": "import-statement",
+          "original": "./auth.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./parser.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/collection-window-audit.ts": {
+      "bytes": 8329,
+      "imports": [
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/collector/models.ts": {
+      "bytes": 1417,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/data-coverage.ts": {
+      "bytes": 3460,
+      "imports": [
+        {
+          "path": "src/collector/models.ts",
+          "kind": "import-statement",
+          "original": "./collector/models.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ingestion-quarantine.ts": {
+      "bytes": 1115,
+      "imports": [
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/hrv-evidence.ts": {
+      "bytes": 3524,
+      "imports": [
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/hrv-source.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/workout-decoder.ts": {
+      "bytes": 3013,
+      "imports": [
+        {
+          "path": "src/collector/crypto.ts",
+          "kind": "import-statement",
+          "original": "./collector/crypto.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/semantics.ts": {
+      "bytes": 5937,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/freshness.ts": {
+      "bytes": 668,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/daily-health.ts": {
+      "bytes": 13771,
+      "imports": [
+        {
+          "path": "src/hrv-evidence.ts",
+          "kind": "import-statement",
+          "original": "./hrv-evidence.js"
+        },
+        {
+          "path": "src/hrv-source.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source.js"
+        },
+        {
+          "path": "src/freshness.ts",
+          "kind": "import-statement",
+          "original": "./freshness.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/semantics.ts",
+          "kind": "import-statement",
+          "original": "./semantics.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/activity-details.ts": {
+      "bytes": 6724,
+      "imports": [
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/workout-decoder.ts",
+          "kind": "import-statement",
+          "original": "./workout-decoder.js"
+        },
+        {
+          "path": "src/semantics.ts",
+          "kind": "import-statement",
+          "original": "./semantics.js"
+        },
+        {
+          "path": "src/daily-health.ts",
+          "kind": "import-statement",
+          "original": "./daily-health.js"
+        },
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/workout-analysis.ts": {
+      "bytes": 6865,
+      "imports": [
+        {
+          "path": "src/workout-decoder.ts",
+          "kind": "import-statement",
+          "original": "./workout-decoder.js"
+        },
+        {
+          "path": "src/activity-details.ts",
+          "kind": "import-statement",
+          "original": "./activity-details.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/mcp-sync.ts": {
+      "bytes": 7898,
+      "imports": [
+        {
+          "path": "src/freshness.ts",
+          "kind": "import-statement",
+          "original": "./freshness.js"
+        },
+        {
+          "path": "src/persistence.ts",
+          "kind": "import-statement",
+          "original": "./persistence.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/collector/models.ts",
+          "kind": "import-statement",
+          "original": "./collector/models.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/step-audit.ts": {
+      "bytes": 6645,
+      "imports": [
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/persistence.ts": {
+      "bytes": 36251,
+      "imports": [
+        {
+          "path": "src/ingestion-quarantine.ts",
+          "kind": "import-statement",
+          "original": "./ingestion-quarantine.js"
+        },
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
+        },
+        {
+          "path": "src/data-coverage.ts",
+          "kind": "import-statement",
+          "original": "./data-coverage.js"
+        },
+        {
+          "path": "src/hrv-evidence.ts",
+          "kind": "import-statement",
+          "original": "./hrv-evidence.js"
+        },
+        {
+          "path": "src/hrv-source.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source.js"
+        },
+        {
+          "path": "src/workout-analysis.ts",
+          "kind": "import-statement",
+          "original": "./workout-analysis.js"
+        },
+        {
+          "path": "src/mcp-sync.ts",
+          "kind": "import-statement",
+          "original": "./mcp-sync.js"
+        },
+        {
+          "path": "src/daily-health.ts",
+          "kind": "import-statement",
+          "original": "./daily-health.js"
+        },
+        {
+          "path": "src/semantics.ts",
+          "kind": "import-statement",
+          "original": "./semantics.js"
+        },
+        {
+          "path": "src/step-audit.ts",
+          "kind": "import-statement",
+          "original": "./step-audit.js"
+        },
+        {
+          "path": "src/activity-details.ts",
+          "kind": "import-statement",
+          "original": "./activity-details.js"
+        },
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/models.ts",
+          "kind": "import-statement",
+          "original": "./collector/models.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/collector/crypto.ts",
+          "kind": "import-statement",
+          "original": "./collector/crypto.js"
+        },
+        {
+          "path": "src/step-audit.ts",
+          "kind": "dynamic-import",
+          "original": "./step-audit.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/hrv-source-inspection.ts": {
+      "bytes": 2700,
+      "imports": [
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/hrv-cloud-probe.ts": {
+      "bytes": 5041,
+      "imports": [
+        {
+          "path": "src/persistence.ts",
+          "kind": "import-statement",
+          "original": "./persistence.js"
+        },
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/hrv-source-inspection.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source-inspection.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/workout-native.ts": {
+      "bytes": 7031,
+      "imports": [
+        {
+          "path": "src/collector/auth.ts",
+          "kind": "import-statement",
+          "original": "./collector/auth.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/crypto.ts",
+          "kind": "import-statement",
+          "original": "./collector/crypto.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/quality-evidence.ts": {
+      "bytes": 1583,
+      "imports": [
+        {
+          "path": "./collector/http.js",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/activity-details.ts",
+          "kind": "import-statement",
+          "original": "./activity-details.js"
+        },
+        {
+          "path": "./collector/adapter.js",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "src/dashboard.ts": {
+      "bytes": 25932,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/verification.ts": {
+      "bytes": 3020,
+      "imports": [
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/worker.ts": {
+      "bytes": 17649,
+      "imports": [
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
+        },
+        {
+          "path": "src/collection-window-audit.ts",
+          "kind": "import-statement",
+          "original": "./collection-window-audit.js"
+        },
+        {
+          "path": "src/data-coverage.ts",
+          "kind": "import-statement",
+          "original": "./data-coverage.js"
+        },
+        {
+          "path": "src/hrv-cloud-probe.ts",
+          "kind": "import-statement",
+          "original": "./hrv-cloud-probe.js"
+        },
+        {
+          "path": "src/hrv-evidence.ts",
+          "kind": "import-statement",
+          "original": "./hrv-evidence.js"
+        },
+        {
+          "path": "src/hrv-source-inspection.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source-inspection.js"
+        },
+        {
+          "path": "src/workout-native.ts",
+          "kind": "import-statement",
+          "original": "./workout-native.js"
+        },
+        {
+          "path": "src/workout-analysis.ts",
+          "kind": "import-statement",
+          "original": "./workout-analysis.js"
+        },
+        {
+          "path": "src/mcp-sync.ts",
+          "kind": "import-statement",
+          "original": "./mcp-sync.js"
+        },
+        {
+          "path": "src/quality-evidence.ts",
+          "kind": "import-statement",
+          "original": "./quality-evidence.js"
+        },
+        {
+          "path": "src/step-audit.ts",
+          "kind": "import-statement",
+          "original": "./step-audit.js"
+        },
+        {
+          "path": "src/activity-details.ts",
+          "kind": "import-statement",
+          "original": "./activity-details.js"
+        },
+        {
+          "path": "src/collector/models.ts",
+          "kind": "import-statement",
+          "original": "./collector/models.js"
+        },
+        {
+          "path": "src/dashboard.ts",
+          "kind": "import-statement",
+          "original": "./dashboard.js"
+        },
+        {
+          "path": "src/persistence.ts",
+          "kind": "import-statement",
+          "original": "./persistence.js"
+        },
+        {
+          "path": "src/verification.ts",
+          "kind": "import-statement",
+          "original": "./verification.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/auth.ts",
+          "kind": "import-statement",
+          "original": "./collector/auth.js"
+        },
+        {
+          "path": "src/persistence.ts",
+          "kind": "import-statement",
+          "original": "./persistence.js"
+        },
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/step-audit.ts",
+          "kind": "import-statement",
+          "original": "./step-audit.js"
+        },
+        {
+          "path": "src/activity-details.ts",
+          "kind": "import-statement",
+          "original": "./activity-details.js"
+        },
+        {
+          "path": "src/sleep-normalizer.ts",
+          "kind": "import-statement",
+          "original": "./sleep-normalizer.js"
+        },
+        {
+          "path": "src/daily-health.ts",
+          "kind": "import-statement",
+          "original": "./daily-health.js"
+        },
+        {
+          "path": "src/semantics.ts",
+          "kind": "import-statement",
+          "original": "./semantics.js"
+        },
+        {
+          "path": "src/mcp-sync.ts",
+          "kind": "import-statement",
+          "original": "./mcp-sync.js"
+        },
+        {
+          "path": "src/workout-analysis.ts",
+          "kind": "import-statement",
+          "original": "./workout-analysis.js"
+        },
+        {
+          "path": "src/workout-native.ts",
+          "kind": "import-statement",
+          "original": "./workout-native.js"
+        },
+        {
+          "path": "src/workout-decoder.ts",
+          "kind": "import-statement",
+          "original": "./workout-decoder.js"
+        },
+        {
+          "path": "src/hrv-source.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source.js"
+        },
+        {
+          "path": "src/hrv-evidence.ts",
+          "kind": "import-statement",
+          "original": "./hrv-evidence.js"
+        },
+        {
+          "path": "src/hrv-source-inspection.ts",
+          "kind": "import-statement",
+          "original": "./hrv-source-inspection.js"
+        },
+        {
+          "path": "src/hrv-cloud-probe.ts",
+          "kind": "import-statement",
+          "original": "./hrv-cloud-probe.js"
+        },
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
+        },
+        {
+          "path": "src/data-coverage.ts",
+          "kind": "import-statement",
+          "original": "./data-coverage.js"
+        },
+        {
+          "path": "src/activity-details.ts",
+          "kind": "import-statement",
+          "original": "./activity-details.js"
+        },
+        {
+          "path": "src/ingestion-quarantine.ts",
+          "kind": "import-statement",
+          "original": "./ingestion-quarantine.js"
+        },
+        {
+          "path": "src/collection-window-audit.ts",
+          "kind": "import-statement",
+          "original": "./collection-window-audit.js"
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "worker/index.js": {
+      "imports": [],
+      "exports": [
+        "MiFitnessAdapter",
+        "activityDetail",
+        "activityHeartRateAnalysis",
+        "allowedFDS",
+        "analyzeHR",
+        "attachHRVEvidence",
+        "auditCollectionWindows",
+        "availableMetrics",
+        "buildDaily",
+        "dataContract",
+        "dataCoverage",
+        "decodeStrengthV4",
+        "decryptFDS",
+        "default",
+        "extractSleepHRV",
+        "fdsSuffix",
+        "fetchActivityDetails",
+        "fieldSemantics",
+        "getSyncProgress",
+        "inspectHRVTree",
+        "metricInfo",
+        "normalizeSleep",
+        "parseRecord",
+        "preflight",
+        "previousDay",
+        "probeHRVCloud",
+        "probeNativeWorkout",
+        "projectHealth",
+        "rawRecord",
+        "readWindowAudit",
+        "redactRawRecord",
+        "rpc",
+        "runPersistentSync",
+        "saveHRVEvidence",
+        "saveRejectedRecords",
+        "saveStepReferences",
+        "sleepHRVFromRaw",
+        "stepsAudit",
+        "stripCredentials",
+        "toolCall",
+        "triggerSync",
+        "validateOnce",
+        "verifySteps"
+      ],
+      "entryPoint": "src/worker.ts",
+      "inputs": {
+        "src/collector/http.ts": {
+          "bytesInOutput": 4498
+        },
+        "src/hrv-source.ts": {
+          "bytesInOutput": 3829
+        },
+        "src/sleep-normalizer.ts": {
+          "bytesInOutput": 5964
+        },
+        "src/collector/parser.ts": {
+          "bytesInOutput": 6667
+        },
+        "src/step-audit.ts": {
+          "bytesInOutput": 6913
+        },
+        "src/raw-record-reader.ts": {
+          "bytesInOutput": 7672
+        },
+        "src/collector/crypto.ts": {
+          "bytesInOutput": 3649
+        },
+        "src/collector/adapter.ts": {
+          "bytesInOutput": 5352
+        },
+        "src/collector/auth.ts": {
+          "bytesInOutput": 4295
+        },
+        "src/collection-window-audit.ts": {
+          "bytesInOutput": 8195
+        },
+        "src/collector/models.ts": {
+          "bytesInOutput": 288
+        },
+        "src/data-coverage.ts": {
+          "bytesInOutput": 3252
+        },
+        "src/ingestion-quarantine.ts": {
+          "bytesInOutput": 943
+        },
+        "src/hrv-evidence.ts": {
+          "bytesInOutput": 3123
+        },
+        "src/persistence.ts": {
+          "bytesInOutput": 39011
+        },
+        "src/workout-decoder.ts": {
+          "bytesInOutput": 2906
+        },
+        "src/activity-details.ts": {
+          "bytesInOutput": 6495
+        },
+        "src/semantics.ts": {
+          "bytesInOutput": 7534
+        },
+        "src/daily-health.ts": {
+          "bytesInOutput": 14576
+        },
+        "src/freshness.ts": {
+          "bytesInOutput": 608
+        },
+        "src/workout-analysis.ts": {
+          "bytesInOutput": 7408
+        },
+        "src/mcp-sync.ts": {
+          "bytesInOutput": 7864
+        },
+        "src/hrv-cloud-probe.ts": {
+          "bytesInOutput": 5084
+        },
+        "src/hrv-source-inspection.ts": {
+          "bytesInOutput": 2954
+        },
+        "src/workout-native.ts": {
+          "bytesInOutput": 6912
+        },
+        "src/quality-evidence.ts": {
+          "bytesInOutput": 1307
+        },
+        "src/worker.ts": {
+          "bytesInOutput": 17405
+        },
+        "src/dashboard.ts": {
+          "bytesInOutput": 29723
+        },
+        "src/verification.ts": {
+          "bytesInOutput": 2655
+        }
+      },
+      "bytes": 219097
+    }
+  }
+}

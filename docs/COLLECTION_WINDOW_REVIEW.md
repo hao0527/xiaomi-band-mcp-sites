@@ -46,4 +46,16 @@ The requests above are separate future budgets, not permission to append them to
 
 ## Verification record
 
-Implementation and final deployed/real results are recorded after validation. Synthetic, local Worker, private deployed API, native MCP and real Xiaomi cloud evidence must remain distinct. No real abnormal cloud record is assumed merely because an offline failure test passed. Native nightly HRV samples and algorithms remain unverified.
+| Layer | Performed validation | Result and limit |
+| --- | --- | --- |
+| Synthetic regression | Public reproducible checkout: typecheck and full 117 tests, including failure stops, exact seconds, cursor preservation, window comparisons, privacy, durable claims and cache/state snapshots | Passed. Error scenarios use synthetic responses, not real abnormal cloud pages. |
+| Local Worker | Actual Worker HTTP route with synthetic upstream plus migration from the preceding schema, applied twice | Passed. Complete redacted evidence is written only to the audit table; existing legacy projection and sync cursor survive. |
+| Private deployed Worker | Published v24 on the existing owner-private Site; native D1 overview/column reads, cache reads and repeated cached POST | Migration and runtime route verified. Cached replay reports no network request. Access remains owner-only. |
+| Native MCP | Three raw components; default source reconstructed from five snapshot-checked chunks and parsed as JSON; old workout raw status rechecked after deployment | Ordinary raw and truthful legacy-no-raw behavior verified. Empty production quarantine supports only not_found; populated/null-time retrieval remains synthetic-only. |
+| Real Xiaomi cloud | The declared 2026-11-02 experiment: one login, two authentication HTTP requests, six health requests, zero retries, no operational details/files | Complete without pagination/quarantine/errors. No target identity difference, adjacent-union difference, same-identity payload change or fresh target identity absent from cache was observed in the tested windows. This does not prove historical/upload completeness or validate a nonempty cross-midnight boundary case. |
+| Preservation | Native status before/after, full live/history checkpoint rows, sampled operational cache and source-version/quarantine state | Checkpoints and retained record/version counts unchanged; sampled legacy cache unchanged. This is not a full byte-for-byte database snapshot. |
+| Source provenance | All 29 runtime TypeScript files and built Worker compared between private deployment checkout and public branch | Source and Worker hash match; private Site identity/hosting configuration remain outside public source. |
+
+The live D1 audit row contains the request evidence. Its large text cells are truncated by the generic database viewer; that viewer is not used to claim an independent reconstruction of every stored source byte. The actual write path and lossless/privacy behavior are separately tested with synthetic long responses. No private source JSON, measurements or record identifiers were copied into public fixtures, Git or server logs.
+
+The real comparison supplies no evidence warranting a change to collection window parameters, daily-step requests, existing filters or stored-date assignment. Those behaviors remain unchanged. Legacy operational raw repair and late-upload review remain a concrete proposal above, not an implemented/scheduled feature. Native nightly HRV samples and algorithms remain unverified.

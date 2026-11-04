@@ -1,3 +1,6 @@
+import {probeHRVCloud} from './hrv-cloud-probe.js';
+import {saveHRVEvidence} from './hrv-evidence.js';
+import {cachedHRVInspection} from './hrv-source-inspection.js';
 import {probeNativeWorkout} from './workout-native.js';
 import {activityHeartRateAnalysis,activityHeartRateSamples} from './workout-analysis.js';
 import {triggerSync,getSyncProgress} from './mcp-sync.js';
@@ -34,6 +37,8 @@ export default {async fetch(request:Request,env:PersistentEnv):Promise<Response>
   if(request.method==='GET'&&url.pathname==='/api/sync-status'&&request.headers.get('X-Site-Sync-Intent')==='refresh'){try{return json(await syncStatus(env));}catch{return json({error:'DATABASE_NOT_READY'},503);}}
   if(!visitor&&!service&&!privateJob)return json({error:'SIGN_IN_REQUIRED'},401);
   if(request.method==='POST'&&['/api/steps-reference','/api/steps-verify'].includes(url.pathname)){if(!service&&!privateJob)return json({error:'OPERATOR_AUTHORIZATION_REQUIRED'},403);if(request.headers.get('Origin')&&request.headers.get('Origin')!==url.origin)return json({error:'CROSS_ORIGIN_DENIED'},403);try{const body=await request.text();if(body.length>8192)return json({error:'REQUEST_TOO_LARGE'},413);const b=JSON.parse(body);if(url.pathname==='/api/steps-reference')return json(await saveStepReferences(env,b.references));const r=validRange(b.start,b.end,31);return json(await verifySteps(env,r.start,r.end));}catch{return json({error:'INVALID_REFERENCE_OR_QUERY'},400);}}
+  if(url.pathname==='/api/hrv-cloud-probe'&&request.method==='POST'&&privateJob){if(request.headers.get('Origin'))return json({error:'CROSS_ORIGIN_DENIED'},403);try{const raw=await request.text();if(raw.length>256)return json({error:'REQUEST_TOO_LARGE'},413);const b=JSON.parse(raw);if(Object.keys(b).length!==1||typeof b.date!=='string')return json({error:'INVALID_ARGUMENTS'},400);return json(await probeHRVCloud(env,b.date));}catch(e){return json({error:e instanceof CollectorError&&['SYNC_BUSY','HRV_PROBE_BUSY','SECRETS_NOT_CONFIGURED','HOSTING_COST_REVIEW_REQUIRED'].includes(e.code)?e.code:'HRV_PROBE_FAILED'},400);}}
+  if(url.pathname==='/api/hrv-verification'&&request.method==='POST'&&(privateJob||service)){if(request.headers.get('Origin')&&request.headers.get('Origin')!==url.origin)return json({error:'CROSS_ORIGIN_DENIED'},403);try{const raw=await request.text();if(raw.length>2048)return json({error:'REQUEST_TOO_LARGE'},413);return json(await saveHRVEvidence(env,JSON.parse(raw)));}catch(e){return json({error:e instanceof CollectorError&&['INVALID_HRV_REFERENCE','HRV_REFERENCE_MISMATCH'].includes(e.code)?e.code:'HRV_REFERENCE_FAILED'},400);}}
   if(url.pathname==='/api/quality-rebuild'&&request.method==='POST'&&privateJob){try{const b=JSON.parse(await request.text());const r=validRange(b.start,b.end,31);return json(await rebuildQuality(env,r.start,r.end));}catch{return json({error:'QUALITY_REBUILD_FAILED'},502);}}
   if(url.pathname==='/api/mcp-trigger-sync'&&request.method==='POST'){if(!privateJob&&!visitor)return json({error:'SIGN_IN_REQUIRED'},401);if(request.headers.get('Origin')&&request.headers.get('Origin')!==url.origin)return json({error:'CROSS_ORIGIN_DENIED'},403);try{const body=await request.text();if(body.length>1024)return json({error:'REQUEST_TOO_LARGE'},413);const b=body?JSON.parse(body):{};if(Object.keys(b).some(k=>!['sync_id','retry_failed'].includes(k))||(b.sync_id!==undefined&&typeof b.sync_id!=='string')||(b.retry_failed!==undefined&&typeof b.retry_failed!=='boolean'))return json({error:'INVALID_ARGUMENTS'},400);return json(await triggerSync(env,b.sync_id,undefined,undefined,b.retry_failed===true));}catch{return json({error:'INVALID_SYNC_REQUEST'},400);}}
   if(url.pathname==='/api/activity-native-probe'&&request.method==='POST'&&privateJob){try{const raw=await request.text();if(raw.length>1024)return json({error:'REQUEST_TOO_LARGE'},413);const b=JSON.parse(raw);if(Object.keys(b).some(k=>k!=='record_ref')||typeof b.record_ref!=='string')return json({error:'INVALID_ARGUMENTS'},400);return json(await probeNativeWorkout(env,b.record_ref));}catch{return json({error:'NATIVE_PROBE_FAILED'},502);}}
@@ -45,6 +50,7 @@ export default {async fetch(request:Request,env:PersistentEnv):Promise<Response>
     if(url.pathname==='/api/activity-heart-rate-samples')return json(await activityHeartRateSamples(env,url.searchParams.get('ref')??'',Number(url.searchParams.get('offset')??0),Number(url.searchParams.get('limit')??1000)));
     if(url.pathname==='/api/activity-heart-rate-analysis')return json(await activityHeartRateAnalysis(env,url.searchParams.get('ref')??''));
     if(url.pathname==='/api/activity-detail')return json(await activityDetail(env,url.searchParams.get('ref')??'',url.searchParams.get('samples')==='true',Number(url.searchParams.get('limit')??1000)));
+    if(url.pathname==='/api/hrv-source-evidence'){const r=validRange(url.searchParams.get('start'),url.searchParams.get('end'),7);return json(await cachedHRVInspection(env,r.start,r.end));}
     if(url.pathname==='/api/quality-evidence'){const r=validRange(url.searchParams.get('start'),url.searchParams.get('end'),7);return json(await qualityEvidence(env,r.start,r.end));}
     if(url.pathname==='/api/mcp-sync-progress')return json(await getSyncProgress(env,url.searchParams.get('sync_id')??undefined));
     if(url.pathname==='/api/metrics')return json(await availableMetrics(env));
@@ -89,3 +95,8 @@ export {fdsSuffix,allowedFDS,decryptFDS,probeNativeWorkout} from './workout-nati
 export {decodeStrengthV4} from './workout-decoder.js';
 
 export {extractSleepHRV,sleepHRVFromRaw} from './hrv-source.js';
+
+export {saveHRVEvidence,attachHRVEvidence} from './hrv-evidence.js';
+export {inspectHRVTree} from './hrv-source-inspection.js';
+
+export {probeHRVCloud} from './hrv-cloud-probe.js';

@@ -27,3 +27,10 @@ CREATE TABLE IF NOT EXISTS workout_native_cache (
  payload_base64 TEXT,
  checked_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS hrv_probe_cache (
+ date_cn TEXT PRIMARY KEY,
+ status TEXT NOT NULL,
+ audit_json TEXT NOT NULL,
+ raw_json TEXT NOT NULL,
+ checked_at INTEGER NOT NULL
+);

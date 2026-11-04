@@ -1,8 +1,10 @@
-# HRV mapping and time-series investigation (draft)
-Date: 2026-11-04. This branch is not deployed. No actual personal measurements, source record references, Site identifiers, or private URLs are included here.
+# HRV field verification and native-series investigation
 
-## Mapping evidence and scope
-The owner supplied an App-to-MCP comparison for one sleep date, and the existing native MCP cache read was consistent with that private comparison. Only five mappings are covered:
+Release investigation: 2026-11-04. This report intentionally excludes personal measurement values, account identifiers, record references and private Site URLs.
+
+## Implemented and verified
+
+Five sleep-summary fields have owner-reported App mapping/unit evidence:
 
 | Source field | App item | Unit |
 |---|---|---|
@@ -12,44 +14,48 @@ The owner supplied an App-to-MCP comparison for one sleep date, and the existing
 | hrv_base_min | 个人基准下限 | ms |
 | hrv_base_max | 个人基准上限 | ms |
 
-Mapping/unit verification and algorithm verification are separate. The source values are untouched; field confidence is source_reported, mapping_verified/unit_verified=true, algorithm_verified=false. The evidence is owner-reported App reconciliation, not an independently inspected App capture or vendor specification. It is limited to one owner/date and is not universal cross-device/account validation. Consumers of this public implementation must revalidate against their own App.
+The evidence is limited to one owner and comparison date (2026-11-04), not a vendor specification or cross-account validation. Per-field metadata distinguishes mapping_verified, unit_verified, algorithm_verified, and record_app_reconciled. Original values are unchanged. Confidence stays source_reported; no clinical accuracy is asserted.
 
-The comparison values stay out of public source/tests. The owner message is the present comparison evidence; a private D1 evidence record with per-record matching remains pending execution access. record_app_reconciled remains null so this field-mapping evidence cannot falsely reconcile every returned record.
+Other fields, including hrv_median, hrv_std, quantiles and hrv_analysis_timestamp, retain unknown units and unverified meanings. Bundle unit=null is intentional: the bundle mixes fields with different verification states and an unverified timestamp. Consult field_metadata. No RMSSD/SDNN inference is made. Zero placeholders remain flagged rather than being converted into measurements.
 
-hrv_median, hrv_std, quantiles, analysis timestamps and unknown fields retain unit=null and unverified semantics. Bundle-level unit remains null because the bundle mixes measurements and an unverified timestamp; use field_metadata for each field. No RMSSD/SDNN assertion is made. All-zero source placeholders stay intact and flagged; verified mapping does not prove that a zero is a measurement.
+The private comparison is stored in the existing aggregation_policies D1 table under hrv_app_reference:<date>. The owner-only POST /api/hrv-verification accepts date plus exactly five app_values, checks them against the actual cached sleep record, and refuses a mismatch before writing. It does not rewrite raw_records, raw_versions or sleep arithmetic. Subsequent reads validate both the exact record reference and current source values; other dates are not marked App-reconciled. Comparison values and record references are not included in this repository.
 
-## What was actually checked in this phase
-| Source/interface | Actual action | Result/limit |
+## Actual native-series investigation
+
+| Interface/source | Performed action | Actual result and boundary |
 |---|---|---|
-| Existing native get_hrv_trend | Read one cached sleep date | Scalar source fields returned; no samples exposed by this reader |
-| Existing native get_sleep_records | Read that cached sleep date | Normalized stages and HRV summary returned; not complete raw JSON |
-| Sites D1 overview/raw_records viewer | Read schema and one bounded first page | No sleep record in that page; cannot claim complete nested JSON inspection |
-| /app/v1/data/get_fitness_data_by_time key=sleep | Reviewed current Adapter and public reference implementation | Used by existing sleep sync; no new upstream call in this phase |
-| /app/v1/data/get_aggregated_fitness_data_by_time tag=daily_report key=sleep | Reviewed Jenwein/mifit sleep domain implementation | Reference has segment_details; not queried for this owner in this phase |
-| /app/v1/data/get_latest_fitness_data | Reviewed Jenwein/mifit catalog | Discovery candidate only; not called |
-| /healthapp/service/gen_download_url and Xiaomi FDS | Reviewed existing workout-native.ts | Current implementation uses sport references, not validated sleep/HRV references; not called for HRV |
+| Cached sleep raw JSON | Recursive inspection of selected cached nights, nested arrays and JSON strings | Only scalar HRV summary fields and sleep-stage items found in that window; scan not truncated. This is not a claim about all historical records. |
+| /app/v1/data/get_fitness_data_by_time, key=hrv | One real bounded request | HTTP 200, empty data_list, has_more=false. Empty results do not establish that the key is recognized or device HRV is unsupported. |
+| /app/v1/data/get_aggregated_fitness_data_by_time, tag=daily_report, key=sleep | One real request under legacy camel-case window parameters | HTTP 200, default-sized first page with has_more=true; time filtering was not established. Inspected first-page JSON had sleep segment details but no HRV fields. The target night and remaining pages are not established as covered. |
+| /healthapp/service/gen_download_url + Xiaomi FDS | Existing workout implementation reviewed | No sleep/HRV file-reference protocol verified; no HRV file download attempted. |
 
-The current extractor inspects top-level HRV-named fields; nested HRV inside a differently named container can be omitted from the returned projection, while original D1 raw records remain preserved. No claim is made that the full raw sleep JSON lacks a curve.
+The real probe used one login and two health requests, with no retry. It stopped at HRV_PROBE_PAGE_LIMIT instead of continuing historical pagination. Full sanitized upstream result objects are preserved in the separate hrv_probe_cache D1 table; unknown fields and strings remain in that raw cache. Existing health records, versions and sync/history checkpoints were unchanged. Cached diagnostic rereads do not log in or call Xiaomi again.
 
-Reference code reviewed (not copied):
+A later code correction uses snake-case start_time/end_time (Unix seconds) and an explicit limit=50 for future sleep-aggregate probes, following the reviewed reference implementation. This request format is tagged snake_case_seconds_v2 and is covered by synthetic tests, **not yet by a further real cloud call**. Existing legacy cached evidence is retained and not overwritten or reinterpreted as v2. No automatic re-login was performed to repeat the experiment.
+
+No native HRV sample sequence or binary HRV object was obtained. A base64-shaped pagination next_key is a cursor, not evidence of a sensor file; the inventory excludes pagination tokens. No get_hrv_samples tool was added, and no timestamps, sample cadence, RR intervals or curve points were generated from summaries or heart rate.
+
+## Operator-only diagnostics
+
+These routes are not MCP tools and do not run during readonly MCP queries:
+
+- GET /api/hrv-source-evidence?start=...&end=... : up to seven days of cached sleep structure, no cloud call. Traversal bounds and truncation are explicit; sensitive identifier/credential keys and string contents are excluded from the returned inventory.
+- POST /api/hrv-cloud-probe with {date}: explicit owner-platform service intent, maximum two health requests, one login, no request retry, separate D1 cache and shared sync lease. Authentication failure, non-200 health response, rate limit, uncertain network and page limits stop the probe. A saved result prevents repeated login, including after a failed probe.
+
+The migration 0004_hrv_probe_cache is additive and idempotent. It does not alter existing raw or normalized tables. Source authentication remains backend-only; no Secrets, cookies or signed URLs enter diagnostic responses or logs.
+
+## Verification
+
+- TypeScript check and full synthetic regression suite: 78 tests passed before actual deployment; repeated after final request-format and cursor-classification corrections.
+- Synthetic tests cover exact-record private evidence, mismatch rejection, nested JSON traversal, unknown units, zero placeholders, one-login bounds, cache reuse, rate-limit/network stopping and unchanged sync/history checkpoints. Miniflare real outbound access is disabled.
+- Actual private native MCP reads verified unit metadata, exact-record reconciliation, unchanged sleep arithmetic and correct non-reconciled state for dates without App references. Updated average HRV is also present in get_daily_summary.
+- Public source/tests contain only synthetic measurements; raw evidence remains exclusively in the owner's private D1.
+
+## Remaining work
+
+The App curve source remains unverified. Next steps are to identify the current App's actual HRV request key/schema or a validated sleep-file reference, then make a separately bounded request with correct time semantics. Only after obtaining real timestamp/value pairs should a readonly paginated sample tool and a matching decoder be implemented. Preserve undecoded data and failure evidence; do not infer a format from workout binaries.
+
+Reference implementations reviewed, not copied:
 - https://github.com/Jenwein/mifit/blob/00b8e15711b027057d82c436c230da55849ee34d/src/mifit/domains/sleep.py
 - https://github.com/Jenwein/mifit/blob/00b8e15711b027057d82c436c230da55849ee34d/notes/domain-catalog.md
 - https://github.com/LilZeeCN/mi-health-exporter/blob/1dc9274a90ccc83f02cbb3706aae2a4d55c8e90a/sync_cloud.py
-
-No native HRV series decoder/source was verified from these reviewed files. This is not proof that Xiaomi cloud does not store the curve.
-
-## Next bounded execution steps
-1. Read cached raw sleep records by exact private record reference; inventory nested objects, arrays and encoded fields without logging identifiers or credentials.
-2. Check for explicit per-point timestamp/value fields and preserve exact source paths/types/units. Do not substitute sleep stages, heart rate, analysis timestamp or a fabricated fixed cadence.
-3. Inspect the sleep daily aggregate if the cache has no curve. Probe an HRV-specific key only after source/API evidence, with bounded calls and stop-on-auth/rate-limit/network-uncertainty rules.
-4. If a sleep/HRV file pointer exists, validate its binding to that sleep record before downloading; do not reuse guessed sport suffix/protocol layouts. Retain raw bytes plus decoded structure and decoder version.
-5. Add get_hrv_samples only after real sample shape is established: readonly cache, stable cursor, source paths, exact timestamps/values and explicit missing/placeholder status. No interpolation, smoothing, scoring or health conclusions.
-6. Compare real points/time axis with the App curve where feasible. Preserve unparsed contents if only part of the structure decodes.
-
-## Verification status
-- Pure JS smoke: 29 assertions executed against the modified extractor after removal of this file's known TypeScript annotations. This checks logic only.
-- Four additional Node regression tests are supplied with synthetic data only.
-- TypeScript build/full Node/Miniflare suite: NOT RUN (execution environment unavailable).
-- Private deployment and updated-unit native MCP regression: NOT RUN; existing private version remains unchanged.
-- New Xiaomi login/cloud probes, native HRV samples and binary decoding: NOT PERFORMED.
-Do not merge/deploy this draft until the full checks and scoped private evidence storage are complete.

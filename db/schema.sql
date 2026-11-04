@@ -56,3 +56,10 @@ CREATE TABLE IF NOT EXISTS ingestion_quarantine (
  last_seen_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_quarantine_metric_window ON ingestion_quarantine(metric,requested_start,requested_end);
+CREATE TABLE IF NOT EXISTS collection_window_audits (
+ audit_id TEXT PRIMARY KEY,
+ status TEXT NOT NULL,
+ audit_json TEXT NOT NULL,
+ raw_json TEXT NOT NULL,
+ checked_at INTEGER NOT NULL
+);

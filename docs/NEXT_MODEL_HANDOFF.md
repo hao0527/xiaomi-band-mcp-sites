@@ -40,3 +40,15 @@ The preceding stage passes 94 synthetic tests, including eight source-preservati
 ## Delivery
 
 Give an audit conclusion and request budget before changing complex collection logic. Deliver small testable patches, privacy-scanned Git commits/PRs, owner-private deployment, actual validation and a concise list of remaining unknowns. Do not merge default-branch changes unless explicitly authorized. Do not present a planned or mock-tested feature as actually verified on Xiaomi cloud.
+
+## Follow-on checkpoint: bounded window review
+
+PR #4, branch collection-window-review-20261104, is stacked on the still-unmerged source-preservation branch. Check both PRs and actual deployed source before selecting a base. The follow-on runtime was deployed as v24 on the existing owner-private Site. Public/private runtime source and Worker hashes matched. The public checkout passes typecheck and 117 synthetic tests.
+
+Read docs/COLLECTION_WINDOW_REVIEW.md, src/collection-window-audit.ts and the two new boundary/audit test files. Shared health requests now stop after one uncertain/429/unexpected non-200 result; sync/detail loops stop without advancing the failed cursor. Existing constructor arguments and MCP contracts remain accepted. Legacy retry tuning arguments no longer enable automatic retries.
+
+The operator-only audit is separate from MCP and normal ingestion. An additive D1 table durably caches successful/failed/interrupted experiment state and complete privacy-redacted successful response objects. Actual 2026-11-02 adjacent/exact/overlap checks used one login, two authentication requests and six data requests, with no observed set/content/cache difference. This is limited evidence, not proof of complete collection or validated cross-midnight behavior. No time-window/step/date-assignment changes were made. The existing audit claim must be reused; do not clear it to repeat a real login.
+
+Native get_raw_record accepted metric_record, activity_operational and ingestion_quarantine. Ordinary raw was reconstructed through all chunks. The old workout remains legacy_projected_cache_no_raw_response. Production quarantine is empty: populated quarantine retrieval and null source time are still synthetic-only checks. No fake record was inserted.
+
+Legacy raw repair and late-upload review were evaluated with separate independent-queue/request-budget/stop proposals, but not implemented or run. Do not portray them as resumable working features or turn the audit endpoint into a general sync/backfill endpoint. Continue with a separately scoped implementation only if needed; preserve live/history state and reuse operational/native caches.

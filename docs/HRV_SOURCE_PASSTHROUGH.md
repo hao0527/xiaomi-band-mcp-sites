@@ -1,3 +1,7 @@
+# Draft update: scoped HRV unit evidence
+
+See [HRV_UNIT_AND_SERIES_RESEARCH.md](HRV_UNIT_AND_SERIES_RESEARCH.md). This branch adds owner-reported ms mapping for five summary fields only; algorithm and other field units remain unverified. It has not been deployed or passed the full build/test suite. The original milestone below describes the previously deployed snapshot.
+
 # Sleep HRV source passthrough milestone
 
 This is a cache-only additive change. It performs no Xiaomi login or network request, no D1 migration, and no data rewrite. Existing step fusion, sleep staging, synchronization and history checkpoints remain unchanged.

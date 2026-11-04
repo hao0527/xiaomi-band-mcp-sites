@@ -26,7 +26,15 @@ A successful source containing only nulls, empty strings/arrays/objects is prese
 
 The synthetic suite covers selected-only writes, protected-table and checkpoint preservation, complete long source reconstruction, versions, cache reuse, the shared ordinary-new-response path, failed/interrupted claim reuse, auth/HTTP/network stopping, empty response/projection provenance, source validation, no extra MCP tools, Worker authorization and additive migration from the preceding schema. No production synthetic health record is used.
 
-For the initial private verification, the owner-authorized target is the cached 2026-11-03 workout. The same one-login/one-detail budget applies. Actual Worker/native/cloud results are recorded separately after execution. New-record automatic ingestion remains a separate real verification until a genuinely new workout exists; a historical refetch must not be presented as that end-to-end proof.
+For the initial private verification, the owner-authorized target was the cached 2026-11-03 workout. The actual attempt completed within one login, two authentication HTTP requests and one operational request, with zero retries. Its raw component became available and one source version was retained. This was a current-response refetch, not restoration of a discarded historical wire response.
+
+## Verified follow-on result
+
+- Private and public reproducible checkouts passed typecheck and all 146 synthetic tests, including 18 repair/empty-content regressions. The actual local Worker route and additive migration from the previous schema were tested with synthetic upstream responses.
+- The existing owner-private Site was published as v26 for the bounded singleton request and v27 for the structure-only empty-content annotation. Runtime source and Worker hashes match the public branch; sharing and the ten-tool MCP directory are preserved.
+- Actual native MCP successfully reads the selected legacy raw response and a subsequently appeared new-workout raw response from normal sync. The later record has no explicit repair marker. This supplies real evidence that ordinary new-record preservation works in the observed case; it does not establish all future formats or complete historical coverage.
+- The returned source had null-only content. Raw availability therefore does not establish that extra workout details were recovered. Native raw/detail readers now expose structural emptiness explicitly. Before/after the annotation-only publish, cached source text, snapshot hashes, record/version counts, exposed live/history state and sampled native-curve metadata matched. No second cloud request was made.
+- The real attempt audit and source version remain in private D1. Failed/uncertain network scenarios and long unknown-field preservation were verified with mocks, not by inducing real cloud failures. No private measurements, source JSON, timestamps or record references were committed.
 
 
 ## Structural empty-content classification

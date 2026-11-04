@@ -146,7 +146,7 @@ const definitions:Array<{name:string;props:Record<string,unknown>;description:st
  {name:'get_stress_records',props:{...dates,...paging},description:'读取源压力评分记录，保留0分，不作医学诊断。'},
  {name:'get_activity_heart_rate_samples',props:{record_ref:{type:'string',maxLength:100},offset:{type:'integer',minimum:0,maximum:21600},limit:{type:'integer',minimum:1,maximum:2000}},description:'只读原生运动心率缓存；不可用时使用分钟采样。用next_offset分页获取完整曲线，返回时间戳和BPM，不联网。'},
  {name:'get_activity_heart_rate_analysis',props:{record_ref:{type:'string',maxLength:100}},description:'只读缓存运动心率分析：观察峰值/源峰值、采样间隔、固定BPM分布、源训练负荷可信度及运动后观察。无动作起止时间不推测组间恢复；不触发小米请求。'},
- {name:'get_activity_detail',props:{record_ref:{type:'string',maxLength:100},include_samples:{type:'boolean'},sample_limit:{type:'integer',minimum:1,maximum:2000}},description:'按运动记录record_ref读取单次运动详情与可选心率采样；全天心率关联与原生运动曲线明确区分，不触发采集。'},
+ {name:'get_activity_detail',props:{record_ref:{type:'string',maxLength:100},include_samples:{type:'boolean'},sample_limit:{type:'integer',minimum:1,maximum:2000}},description:'按运动记录record_ref读取单次运动详情与可选心率采样；series_source仅描述heart_rate_samples；原生native_heart_rate_samples来源见native_curve.series_source。完整曲线用get_activity_heart_rate_samples分页读取，不触发采集。'},
  {name:'get_steps_audit',props:{...dates},description:'最多31天，核对手机参考步数、云端日聚合及各来源计算口径，只读不修改数据。'},
  {name:'get_body_measurements',props:{...dates,...paging},description:'读取体重/体成分源数值；尚未核实的单位明确标注。'}
 ];

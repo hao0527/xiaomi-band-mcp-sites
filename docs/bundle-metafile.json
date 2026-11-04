@@ -70,7 +70,7 @@
       "format": "esm"
     },
     "src/collector/adapter.ts": {
-      "bytes": 6089,
+      "bytes": 7777,
       "imports": [
         {
           "path": "src/collector/crypto.ts",
@@ -200,7 +200,7 @@
       "format": "esm"
     },
     "src/activity-details.ts": {
-      "bytes": 8797,
+      "bytes": 8842,
       "imports": [
         {
           "path": "src/raw-record-reader.ts",
@@ -319,8 +319,34 @@
       ],
       "format": "esm"
     },
+    "src/workout-native.ts": {
+      "bytes": 12273,
+      "imports": [
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/collector/crypto.ts",
+          "kind": "import-statement",
+          "original": "./collector/crypto.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        }
+      ],
+      "format": "esm"
+    },
     "src/mcp-sync.ts": {
-      "bytes": 7898,
+      "bytes": 8370,
       "imports": [
         {
           "path": "src/freshness.ts",
@@ -346,6 +372,11 @@
           "path": "src/collector/http.ts",
           "kind": "import-statement",
           "original": "./collector/http.js"
+        },
+        {
+          "path": "src/workout-native.ts",
+          "kind": "import-statement",
+          "original": "./workout-native.js"
         }
       ],
       "format": "esm"
@@ -367,7 +398,7 @@
       "format": "esm"
     },
     "src/persistence.ts": {
-      "bytes": 41310,
+      "bytes": 42218,
       "imports": [
         {
           "path": "src/ingestion-quarantine.ts",
@@ -423,6 +454,11 @@
           "path": "src/activity-details.ts",
           "kind": "import-statement",
           "original": "./activity-details.js"
+        },
+        {
+          "path": "src/workout-native.ts",
+          "kind": "import-statement",
+          "original": "./workout-native.js"
         },
         {
           "path": "src/collector/adapter.ts",
@@ -499,32 +535,6 @@
       ],
       "format": "esm"
     },
-    "src/workout-native.ts": {
-      "bytes": 7031,
-      "imports": [
-        {
-          "path": "src/collector/auth.ts",
-          "kind": "import-statement",
-          "original": "./collector/auth.js"
-        },
-        {
-          "path": "src/collector/http.ts",
-          "kind": "import-statement",
-          "original": "./collector/http.js"
-        },
-        {
-          "path": "src/collector/crypto.ts",
-          "kind": "import-statement",
-          "original": "./collector/crypto.js"
-        },
-        {
-          "path": "src/collector/parser.ts",
-          "kind": "import-statement",
-          "original": "./collector/parser.js"
-        }
-      ],
-      "format": "esm"
-    },
     "src/quality-evidence.ts": {
       "bytes": 1583,
       "imports": [
@@ -578,7 +588,7 @@
       "format": "esm"
     },
     "src/worker.ts": {
-      "bytes": 18707,
+      "bytes": 18749,
       "imports": [
         {
           "path": "src/raw-record-reader.ts",
@@ -810,10 +820,12 @@
         "extractSleepHRV",
         "fdsSuffix",
         "fetchActivityDetails",
+        "fetchPendingNativeWorkout",
         "fieldSemantics",
         "getSyncProgress",
         "inspectHRVTree",
         "metricInfo",
+        "nativeSyncState",
         "normalizeSleep",
         "parseRecord",
         "preflight",
@@ -863,19 +875,19 @@
           "bytesInOutput": 3649
         },
         "src/collector/adapter.ts": {
-          "bytesInOutput": 5352
+          "bytesInOutput": 7168
         },
         "src/collector/auth.ts": {
           "bytesInOutput": 4295
         },
         "src/collection-window-audit.ts": {
-          "bytesInOutput": 8195
+          "bytesInOutput": 8198
         },
         "src/activity-raw-repair.ts": {
           "bytesInOutput": 6585
         },
         "src/activity-details.ts": {
-          "bytesInOutput": 8439
+          "bytesInOutput": 8488
         },
         "src/workout-decoder.ts": {
           "bytesInOutput": 2906
@@ -896,28 +908,28 @@
           "bytesInOutput": 288
         },
         "src/data-coverage.ts": {
-          "bytesInOutput": 3252
+          "bytesInOutput": 3255
         },
         "src/ingestion-quarantine.ts": {
           "bytesInOutput": 943
         },
         "src/persistence.ts": {
-          "bytesInOutput": 44605
+          "bytesInOutput": 45637
         },
         "src/workout-analysis.ts": {
           "bytesInOutput": 7408
         },
         "src/mcp-sync.ts": {
-          "bytesInOutput": 7864
+          "bytesInOutput": 8330
+        },
+        "src/workout-native.ts": {
+          "bytesInOutput": 12198
         },
         "src/hrv-cloud-probe.ts": {
           "bytesInOutput": 5084
         },
         "src/hrv-source-inspection.ts": {
           "bytesInOutput": 2954
-        },
-        "src/workout-native.ts": {
-          "bytesInOutput": 6912
         },
         "src/quality-evidence.ts": {
           "bytesInOutput": 1307
@@ -932,7 +944,7 @@
           "bytesInOutput": 2655
         }
       },
-      "bytes": 234791
+      "bytes": 243514
     }
   }
 }

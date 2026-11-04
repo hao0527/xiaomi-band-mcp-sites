@@ -1,10 +1,11 @@
-import {encryptRequest,rc4,text,unb64} from './crypto.js';
+import {encryptRequest,rc4,text,unb64,auxiliaryEncrypted,nonce,pythonJSON,signedNonce} from './crypto.js';
 import {CollectorError,allowedURL,boundedText,nativeFetcher,type Fetcher} from './http.js';
 import {loginWithToken,type Session} from './auth.js';
 import {object,validateRaw,dateRange} from './parser.js';
 import type {MetricKey,Page,RejectedRecord,RawRecord} from './models.js';
 export const FITNESS_PATH='/app/v1/data/get_fitness_data_by_time';export const SPORT_PATH='/app/v1/data/get_sport_records_by_time';
 export const AGGREGATE_PATH='/app/v1/data/get_aggregated_fitness_data_by_time';export const SPORT_OPERATIONAL_PATH='/app/v1/operate/get_sport_operational_data';
+export const NATIVE_FILE_PATH='/healthapp/service/gen_download_url';
 export interface RetryPolicy {now?:()=>number;maxWaitMs?:number;totalWaitMs?:number;}
 // Never retry earlier than a valid upstream Retry-After. Excessive waits defer the task.
 export function retryAfterMs(value:string|null,now:number):number|null {
@@ -19,6 +20,17 @@ export class MiFitnessAdapter {
   async login(userId:string,passToken:string){this.session=null;this.session=await loginWithToken(this.transport,userId,passToken);}
   // Session injection is backend-only and intended for deterministic tests / secret-store hydration.
   setSession(session:Session){this.session=session;}
+  // Native-file lookup reuses the current backend session; it never logs in again.
+  async nativeFileReference(payload:Record<string,unknown>,signal=AbortSignal.timeout(20000)):Promise<Record<string,unknown>>{
+    if(!this.session)throw new CollectorError('AUTH_REQUIRED');
+    const n=nonce(),params=await auxiliaryEncrypted('GET','/service/gen_download_url',{data:pythonJSON(payload)},this.session.security,n);
+    let r:Response;try{r=await this.transport('https://hlth.io.mi.com'+NATIVE_FILE_PATH+'?'+new URLSearchParams(params),{method:'GET',redirect:'manual',signal,headers:{Cookie:this.session.cookies+'; userId='+this.session.userId,region_tag:'cn'}});}catch(e){if(e instanceof CollectorError)throw e;throw new CollectorError('NETWORK_FAILURE');}
+    if(r.status!==200){await r.body?.cancel();if(r.status===401||r.status===403){this.session=null;throw new CollectorError('AUTH_EXPIRED');}throw new CollectorError(r.status===429?'UPSTREAM_RATE_LIMITED':'UPSTREAM_HTTP_ERROR');}
+    let raw:string;try{raw=await boundedText(r);}catch(e){if(e instanceof CollectorError)throw e;throw new CollectorError('NETWORK_FAILURE');}
+    let body:Record<string,unknown>;try{body=object(JSON.parse(raw.startsWith('{')?raw:text(rc4(await signedNonce(this.session.security,n),unb64(raw)))));}catch{throw new CollectorError('INVALID_CLOUD_RESPONSE');}
+    if([401,403,-6,-10001,2].includes(Number(body.code))){this.session=null;throw new CollectorError('AUTH_EXPIRED');}
+    if(body.code!==0)throw new CollectorError('UPSTREAM_BUSINESS_ERROR');return object(body.result??{});
+  }
   async request(path:typeof FITNESS_PATH|typeof SPORT_PATH|typeof AGGREGATE_PATH|typeof SPORT_OPERATIONAL_PATH,payload:Record<string,unknown>):Promise<Record<string,unknown>>{
     if(!this.session)throw new CollectorError('AUTH_REQUIRED');allowedURL('https://hlth.io.mi.com'+path);
     // Keep constructor arguments compatible, but never repeat an uncertain request.

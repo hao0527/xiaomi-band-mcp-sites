@@ -108,7 +108,7 @@ export {fieldSemantics,dataContract} from './semantics.js';
 export {triggerSync,getSyncProgress} from './mcp-sync.js';
 
 export {analyzeHR,activityHeartRateAnalysis} from './workout-analysis.js';
-export {fdsSuffix,allowedFDS,decryptFDS,probeNativeWorkout} from './workout-native.js';
+export {fdsSuffix,allowedFDS,decryptFDS,probeNativeWorkout,fetchPendingNativeWorkout,nativeSyncState} from './workout-native.js';
 
 export {decodeStrengthV4} from './workout-decoder.js';
 

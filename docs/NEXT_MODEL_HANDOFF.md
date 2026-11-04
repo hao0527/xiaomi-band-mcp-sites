@@ -31,6 +31,8 @@ The preceding stage passes 94 synthetic tests, including eight source-preservati
 
 ## Next bounded tasks
 
+Ordinary sync now includes a bounded native-workout-file phase, using its existing session and shared lease. See docs/NATIVE_WORKOUT_SYNC.md for budgets, same-ID continuation, explicit stop states, cache-only reads and validation limits. Do not reset failed/empty/checking caches to implement an implicit retry, and do not infer upstream upload failure from not_checked.
+
 1. Independently review time-window semantics, pagination and date ownership. Do not change verified step aggregation by analogy with another endpoint. Reproduce with HTTP mocks before any real request. An exact-window/overlapping-window comparison is needed to establish a real missing boundary bucket; code suspicion is not proof.
 2. Propose a small, explicit request budget and stop conditions for real evidence. Keep Secrets in the backend; no credential reading by the assistant, no chat-pasted passwords/tokens, no browser Cookie harvesting, no auth bypass. No real probing until its scope is clear. On authentication failure, rate limit, unexpected non-200 or uncertain network, stop without automatic login retry.
 3. Consider a selective, resumable legacy operational-raw backfill. Reuse caches first. Do not manufacture raw_json from clean_json, reset all cache states to pending, re-download every workout, or interfere with active sync/backfill. No new public access or paid services.

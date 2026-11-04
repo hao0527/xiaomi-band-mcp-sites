@@ -6,7 +6,8 @@ Sites原生托管 `/mcp`，平台认证，不对公网提供无鉴权工具。`s
 |---|---|---|
 | trigger_sync | sync_id?、retry_failed? | 唯一MCP写入工具，今天/昨天有界增量 |
 | get_sync_progress | sync_id? | 只读当前运行进度和时效 |
-| get_sync_status | 无 | 只读实时/历史断点、覆盖与固定错误 |
+| get_sync_status | 日期范围?、metric? | 不传参数兼容原状态；可选最多31天逐日缓存覆盖与请求结果 |
+| get_raw_record | record_ref、offset?、limit?、snapshot_hash? | 分块读取脱敏原始JSON；未知字段/长数组保留，快照变动必须重读 |
 | list_available_metrics | 无 | 21类配置渠道的缓存/检查状态 |
 | get_metric_records | metric、start_date、end_date、cursor?、limit? | 通用已配置指标明细 |
 | get_sleep_records | 日期范围、cursor?、limit? | 睡眠与分期 |
@@ -52,3 +53,5 @@ raw：源值；converted：单位/枚举转换；calculated：明确公式的计
 HRV 详细契约与状态见 [HRV_SOURCE_PASSTHROUGH.md](HRV_SOURCE_PASSTHROUGH.md)。`supported=true` 仅说明存在读取路径，不能理解为单位、算法或临床精度已验证。
 
 五个睡眠 HRV 汇总字段有所有者 App 对账的 ms 单位证据；其他字段不得沿用此单位。逐记录核对证据保存在私有 D1，仅精确匹配的日期/记录标记已对账。尚未获得夜间采样序列，未增加 get_hrv_samples。见 [HRV调查](HRV_UNIT_AND_SERIES_RESEARCH.md)。
+
+完整原始读取及覆盖字段契约见 [RAW_READ_AND_COVERAGE.md](RAW_READ_AND_COVERAGE.md)。通用明细新增统一record_ref/source_ref，可追溯至同一条当前缓存原文，不触发同步。

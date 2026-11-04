@@ -6,7 +6,7 @@ import {stepsAudit,saveStepReferences,verifySteps} from './step-audit.js';
 import {activityDetail} from './activity-details.js';
 import {keys} from './collector/models.js';
 import {dashboard} from './dashboard.js';
-import {rebuildQuality,runPersistentSync,daily,queryRecords,availableMetrics,syncStatus,rpc,safeError,validRange,type PersistentEnv} from './persistence.js';
+import {rebuildQuality,runPersistentSync,daily,queryRecords,hrvRecords,availableMetrics,syncStatus,rpc,safeError,validRange,type PersistentEnv} from './persistence.js';
 import {preflight,validateOnce,previousDay,type Env} from './verification.js';
 import {CollectorError} from './collector/http.js';
 import {LoginDiagnosticError} from './collector/auth.js';
@@ -51,6 +51,7 @@ export default {async fetch(request:Request,env:PersistentEnv):Promise<Response>
     if(url.pathname==='/api/sync-status')return json(await syncStatus(env));
     if(url.pathname==='/api/trends'){const r=validRange(url.searchParams.get('start'),url.searchParams.get('end'),366);if(!env.DB)return json({error:'DATABASE_NOT_READY'},503);return json({days:(await env.DB.prepare('SELECT * FROM daily_summary WHERE date_cn>=? AND date_cn<=? ORDER BY date_cn').bind(r.start,r.end).all()).results,timezone:'Asia/Shanghai'});}
     if(url.pathname==='/api/daily')return json(await daily(env,url.searchParams.get('date')??''));
+    if(url.pathname==='/api/hrv'){const range=validRange(url.searchParams.get('start'),url.searchParams.get('end'));return json(await hrvRecords(env,range.start,range.end,Number(url.searchParams.get('limit')??2000),url.searchParams.get('cursor')??undefined));}
     if(url.pathname==='/api/records'){const range=validRange(url.searchParams.get('start'),url.searchParams.get('end'));const metrics=(url.searchParams.get('metric')??'').split(',');if(!metrics.length||metrics.some(x=>!keys.includes(x as typeof keys[number])))return json({error:'INVALID_METRIC'},400);return json(await queryRecords(env,metrics,range.start,range.end,Number(url.searchParams.get('limit')??2000),url.searchParams.get('cursor')??undefined));}
     }catch{return json({error:'INVALID_QUERY_OR_DATABASE_UNAVAILABLE'},400);}}
   if(url.search)return json({error:'QUERY_PARAMETERS_NOT_ALLOWED'},400);
@@ -86,3 +87,5 @@ export {analyzeHR,activityHeartRateAnalysis} from './workout-analysis.js';
 export {fdsSuffix,allowedFDS,decryptFDS,probeNativeWorkout} from './workout-native.js';
 
 export {decodeStrengthV4} from './workout-decoder.js';
+
+export {extractSleepHRV,sleepHRVFromRaw} from './hrv-source.js';

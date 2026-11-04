@@ -16,6 +16,7 @@ export function fieldSemantics(metric:string,fields:Record<string,unknown>,raw=f
  } else if(['start_time','end_time','time','bedtime','wake_up_time'].includes(key))m=meta('unix_second','源时间戳','raw','verified',metric+'.value.'+key);
  if(key==='recover_time'||key==='recovery_time_raw')m=meta(null,'源 recover_time 恢复指标；单位未验证','raw','unverified','sport.value.recover_time','不能把20解释为20小时、分钟或秒；不得用于确定恢复建议');
  if(raw&&['calories','total_cal'].includes(key))m=meta('kcal',key==='calories'?'源 calories 消耗值':'源 total_cal 消耗值','raw','source_reported','sport.value.'+key,'两字段定义差异未由该私有接口证实；独立保留，不能相加或相互替代');
+ if(metric==='sleep'&&key==='hrv')m=meta(null,'睡眠源HRV字段集合；见内部逐字段元数据，算法与单位未验证','raw','unverified','sleep.value','不将零占位视为真实HRV零值；不由心率推算');
  if(raw&&/hrv/i.test(key))m=meta(null,'源 HRV 相关字段，算法和单位未验证','raw','unverified',metric+'.value.'+key);
  if(!raw&&metric==='sport'&&key==='duration_minutes')m={...meta('minute','源运动时长换算为整分钟；保留旧接口向下取整行为','converted','verified','sport.value.duration'),method:'floor(duration_seconds / 60) || floor((end_at - start_at) / 60)'};
  if(!raw&&metric==='sleep'&&key==='in_bed_minutes')m={...meta('minute','源在床边界之间的时长；不等于睡眠分期区间','calculated','source_reported','sleep.value.bed_timestamp,out_bed_timestamp'),method:'(out_bed_timestamp - bed_timestamp) / 60; unavailable boundaries fall back to session_minutes',warning:'可能包含分期区间前后时间；不能当作实际睡眠时长'};

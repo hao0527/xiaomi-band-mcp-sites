@@ -40,4 +40,4 @@ export function parseRecord(key:MetricKey,input:RawRecord):CleanRecord{
   }return base;
 }
 // HRV has no verified source key, metric, unit or algorithm in either reference.
-export const hrvCapability={supported:false,reason:'NO_VERIFIED_HRV_SOURCE'} as const;
+export const hrvCapability={supported:true,source:'sleep.value',unit:null,algorithm:null,validated_hrv_metric:false,reason:'SLEEP_SOURCE_HRV_UNIT_AND_ALGORITHM_UNVERIFIED'} as const;

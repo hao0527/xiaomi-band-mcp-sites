@@ -22,7 +22,7 @@ Sites原生托管 `/mcp`，平台认证，不对公网提供无鉴权工具。`s
 | get_daily_summary | date | 兼容每日汇总；不能替代明细 |
 | get_weekly_report | date | 兼容七日已存摘要 |
 | get_activity_heart_rate_analysis | record_ref | 兼容缓存统计；不推断组间恢复 |
-| get_hrv_trend | 日期范围 | 当前明确返回未验证状态 |
+| get_hrv_trend | 日期范围、cursor?、limit? | 缓存睡眠 HRV 源字段；单位/算法未验证，保留零占位 |
 
 日期为Asia/Shanghai的YYYY-MM-DD。普通分页参数每页1—2000，默认2000。心率工具范围最多31天；普通明细90天；步数审计31天。具体JSON schema以部署的tools/list为准。
 
@@ -48,3 +48,5 @@ Sites原生托管 `/mcp`，平台认证，不对公网提供无鉴权工具。`s
 ## 可信度
 
 raw：源值；converted：单位/枚举转换；calculated：明确公式的计算。verified是实现对结构/单位/算术的验证，不是临床准确性认证。source_reported不等于已由App对账。unit=null或unverified时，不要猜测分钟/小时、HRV单位或热量范围。
+
+HRV 详细契约与状态见 [HRV_SOURCE_PASSTHROUGH.md](HRV_SOURCE_PASSTHROUGH.md)。`supported=true` 仅说明存在读取路径，不能理解为单位、算法或临床精度已验证。

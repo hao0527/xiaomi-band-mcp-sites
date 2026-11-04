@@ -4,6 +4,14 @@ const normalizedKey=(k:string)=>k.replace(/[_\s-]/g,'').toLowerCase();
 const credentialKey=/token|cookie|password|security|authorization|secret|credential|sessionkey|objkey|signature|privatekey|accesskey|apikey|aeskey|rc4key|^auth$|^session$/i;
 const identifierKeys=new Set(['id','sid','did','userid','cuserid','accountid','deviceid','sourceid','sourcesidlist','mac','macaddress','imei','imsi','phone','phonenumber','email','name','username','nickname','serialnumber','sn']);
 const locationKeys=new Set(['lat','latitude','lon','lng','longitude','gps','route','track','coordinates','coordinate','location','address']);
+// Structure-only classification of an already bounded/redacted JSON value.
+// Zero and false remain source content; no health meaning is inferred.
+export function sourceResponseEmpty(v:unknown):boolean{
+ if(v===null||v===undefined||v==='')return true;
+ if(Array.isArray(v))return v.every(sourceResponseEmpty);
+ if(v&&typeof v==='object')return Object.values(v).every(sourceResponseEmpty);
+ return false;
+}
 export function redactRawRecord(input:unknown){
  const redactions={credential_fields:0,identifier_fields:0,location_fields:0,url_values:0,sensitive_strings:0};let nodes=0;
  function clean(v:unknown,depth:number):unknown{if(++nodes>200000||depth>40)throw new CollectorError('RAW_REDACTION_LIMIT');if(Array.isArray(v))return v.map(x=>clean(x,depth+1));if(v&&typeof v==='object'){
@@ -42,6 +50,7 @@ export async function rawRecord(env:PersistentEnv,recordRef:string,offset=0,limi
  }
  let parsed:unknown;try{parsed=JSON.parse(row.raw_json);}catch{return {status:'raw_envelope_invalid_json',record_ref:recordRef,metric:row.metric,raw_preserved_in_d1:true,raw_content_withheld_reason:'UNPARSED_CONTENT_SECRET_SAFETY',network_requests_performed:false};}
  const clean=redactRawRecord(parsed),json=JSON.stringify(clean.value),digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(component==='metric_record'?json:component+'\0'+json)),hash=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
+ if(component==='activity_operational')preservation={...(preservation as Record<string,unknown>),source_response_empty:sourceResponseEmpty(clean.value),source_response_empty_rule:'no_nonempty_leaf_v1'};
  if(snapshotHash&&snapshotHash!==hash)throw new CollectorError('RECORD_CHANGED_RESTART');
  if(offset>json.length||(offset>0&&/[\uD800-\uDBFF]/.test(json[offset-1])&&/[\uDC00-\uDFFF]/.test(json[offset]??'')))throw new CollectorError('INVALID_OFFSET');
  let end=Math.min(offset+limit,json.length);if(end<json.length&&/[\uD800-\uDBFF]/.test(json[end-1])&&/[\uDC00-\uDFFF]/.test(json[end]))end--;

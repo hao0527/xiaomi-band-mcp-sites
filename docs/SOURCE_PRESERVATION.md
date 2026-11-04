@@ -39,3 +39,8 @@ No new readonly operation triggers collection. Raw component reads preserve the 
 Eight new regressions exercise mixed and all-invalid pages, quarantine replay, correct state reporting, full operational arrays/text, source-version retention, legacy-cache signaling, authentication-stop behavior, unchanged history and additive migration. The full suite is 94 tests. No real credentials or health fixtures are included in this repository.
 
 Remaining boundaries: unreadably deep/unredactable payloads fail explicitly instead of bypassing privacy; source date/window completeness and upstream parameter semantics are not fixed by this stage. Already projected-away operational fields cannot be recovered from the old local cache. Native HRV time-series source and other workout binary versions remain unverified.
+
+
+## Explicit legacy repair follow-on
+
+A missing legacy response remains a truthful read boundary, not evidence that current new-response preservation is broken. The operator-only single-record route described in [OPERATIONAL_RAW_REPAIR.md](OPERATIONAL_RAW_REPAIR.md) can refetch the current cloud response for one selected legacy cache, with a durable attempt marker, shared lease, one-detail request budget and no automatic retry. It reuses the same preservation path as ordinary new fetches. This does not recreate a discarded past response, enable all-workout backfill or prove a future new-record automatic flow. MCP discovery remains ten tools.

@@ -1,5 +1,6 @@
 import {rawRecord,rawReadErrors} from './raw-record-reader.js';
 import {auditCollectionWindows,readWindowAudit} from './collection-window-audit.js';
+import {repairActivityRaw,readActivityRawRepair} from './activity-raw-repair.js';
 import {dataCoverage} from './data-coverage.js';
 import {probeHRVCloud} from './hrv-cloud-probe.js';
 import {saveHRVEvidence} from './hrv-evidence.js';
@@ -39,6 +40,11 @@ export default {async fetch(request:Request,env:PersistentEnv):Promise<Response>
   }
   if(request.method==='GET'&&url.pathname==='/api/sync-status'&&request.headers.get('X-Site-Sync-Intent')==='refresh'){try{return json(await syncStatus(env));}catch{return json({error:'DATABASE_NOT_READY'},503);}}
   if(!visitor&&!service&&!privateJob)return json({error:'SIGN_IN_REQUIRED'},401);
+  if(url.pathname==='/api/activity-raw-repair'&&request.method==='POST'){
+    if(!privateJob)return json({error:'OPERATOR_AUTHORIZATION_REQUIRED'},403);
+    try{const text=await request.text();if(url.search||text.length>512)return json({error:'INVALID_ARGUMENTS'},400);const b=JSON.parse(text);if(!b||Array.isArray(b)||Object.keys(b).length!==1||typeof b.record_ref!=='string')return json({error:'INVALID_ARGUMENTS'},400);return json(await repairActivityRaw(env,b.record_ref));}
+    catch(e){return json({error:e instanceof CollectorError&&['INVALID_RECORD_REF','SYNC_BUSY_OR_NOT_INITIALIZED','PERSIST_SYNC_DISABLED','SECRETS_NOT_CONFIGURED','HOSTING_COST_REVIEW_REQUIRED','REPAIR_SOURCE_NOT_USABLE'].includes(e.code)?e.code:'ACTIVITY_RAW_REPAIR_FAILED'},400);}
+  }
   if(url.pathname==='/api/collection-window-audit'&&request.method==='POST'){
     if(!privateJob)return json({error:'OPERATOR_AUTHORIZATION_REQUIRED'},403);
     try{const text=await request.text();if(url.search||text.length>256)return json({error:'INVALID_ARGUMENTS'},400);const b=JSON.parse(text);if(!b||Array.isArray(b)||Object.keys(b).length!==1||typeof b.date!=='string')return json({error:'INVALID_ARGUMENTS'},400);return json(await auditCollectionWindows(env,b.date));}
@@ -54,6 +60,7 @@ export default {async fetch(request:Request,env:PersistentEnv):Promise<Response>
   if(request.method==='GET'&&url.pathname==='/settings-guide')return new Response(ui,{headers:{...safeHeaders,'Content-Type':'text/html; charset=utf-8'}});
   if(request.method==='GET'&&url.pathname==='/api/preflight'){if(url.search)return json({error:'QUERY_PARAMETERS_NOT_ALLOWED'},400);return json({...preflight(env),healthDataPersistence:!!env.DB,databaseBound:!!env.DB,persistentSyncEnabled:env.PERSIST_SYNC_ENABLED==='true'});}
   if(request.method==='GET'&&url.pathname.startsWith('/api/')){try{
+    if(url.pathname==='/api/activity-raw-repair')return json(await readActivityRawRepair(env,url.searchParams.get('ref')??''));
     if(url.pathname==='/api/collection-window-audit')return json(await readWindowAudit(env,url.searchParams.get('date')??''));
     if(url.pathname==='/api/raw-record'){try{return json(await rawRecord(env,url.searchParams.get('ref')??'',Number(url.searchParams.get('offset')??0),Number(url.searchParams.get('limit')??8192),url.searchParams.get('snapshot_hash')??undefined,url.searchParams.get('component')??undefined));}catch(e){return json({error:e instanceof CollectorError&&rawReadErrors.has(e.code)?e.code:'RAW_READ_FAILED'},400);}}
     if(url.pathname==='/api/data-coverage'){const r=validRange(url.searchParams.get('start'),url.searchParams.get('end'),31);return json(await dataCoverage(env,r.start,r.end,url.searchParams.get('metric')??undefined));}
@@ -118,3 +125,4 @@ export {dataCoverage} from './data-coverage.js';
 export {fetchActivityDetails} from './activity-details.js';
 export {saveRejectedRecords} from './ingestion-quarantine.js';
 export {auditCollectionWindows,readWindowAudit} from './collection-window-audit.js';
+export {repairActivityRaw,readActivityRawRepair} from './activity-raw-repair.js';

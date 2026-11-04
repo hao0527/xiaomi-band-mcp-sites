@@ -6,7 +6,7 @@
       "format": "esm"
     },
     "src/raw-record-reader.ts": {
-      "bytes": 7545,
+      "bytes": 8155,
       "imports": [
         {
           "path": "src/collector/http.ts",
@@ -121,23 +121,13 @@
       ],
       "format": "esm"
     },
-    "src/collector/models.ts": {
-      "bytes": 1417,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/data-coverage.ts": {
-      "bytes": 3460,
+    "src/workout-decoder.ts": {
+      "bytes": 3013,
       "imports": [
         {
-          "path": "src/collector/models.ts",
+          "path": "src/collector/crypto.ts",
           "kind": "import-statement",
-          "original": "./collector/models.js"
-        },
-        {
-          "path": "src/collector/parser.ts",
-          "kind": "import-statement",
-          "original": "./collector/parser.js"
+          "original": "./collector/crypto.js"
         },
         {
           "path": "src/collector/http.ts",
@@ -147,15 +137,9 @@
       ],
       "format": "esm"
     },
-    "src/ingestion-quarantine.ts": {
-      "bytes": 1115,
-      "imports": [
-        {
-          "path": "src/raw-record-reader.ts",
-          "kind": "import-statement",
-          "original": "./raw-record-reader.js"
-        }
-      ],
+    "src/semantics.ts": {
+      "bytes": 5937,
+      "imports": [],
       "format": "esm"
     },
     "src/hrv-evidence.ts": {
@@ -177,27 +161,6 @@
           "original": "./hrv-source.js"
         }
       ],
-      "format": "esm"
-    },
-    "src/workout-decoder.ts": {
-      "bytes": 3013,
-      "imports": [
-        {
-          "path": "src/collector/crypto.ts",
-          "kind": "import-statement",
-          "original": "./collector/crypto.js"
-        },
-        {
-          "path": "src/collector/http.ts",
-          "kind": "import-statement",
-          "original": "./collector/http.js"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/semantics.ts": {
-      "bytes": 5937,
-      "imports": [],
       "format": "esm"
     },
     "src/freshness.ts": {
@@ -237,7 +200,7 @@
       "format": "esm"
     },
     "src/activity-details.ts": {
-      "bytes": 6724,
+      "bytes": 8797,
       "imports": [
         {
           "path": "src/raw-record-reader.ts",
@@ -273,6 +236,69 @@
           "path": "src/collector/parser.ts",
           "kind": "import-statement",
           "original": "./collector/parser.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/activity-raw-repair.ts": {
+      "bytes": 6712,
+      "imports": [
+        {
+          "path": "src/collector/adapter.ts",
+          "kind": "import-statement",
+          "original": "./collector/adapter.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        },
+        {
+          "path": "src/activity-details.ts",
+          "kind": "import-statement",
+          "original": "./activity-details.js"
+        },
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/collector/models.ts": {
+      "bytes": 1417,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/data-coverage.ts": {
+      "bytes": 3460,
+      "imports": [
+        {
+          "path": "src/collector/models.ts",
+          "kind": "import-statement",
+          "original": "./collector/models.js"
+        },
+        {
+          "path": "src/collector/parser.ts",
+          "kind": "import-statement",
+          "original": "./collector/parser.js"
+        },
+        {
+          "path": "src/collector/http.ts",
+          "kind": "import-statement",
+          "original": "./collector/http.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ingestion-quarantine.ts": {
+      "bytes": 1115,
+      "imports": [
+        {
+          "path": "src/raw-record-reader.ts",
+          "kind": "import-statement",
+          "original": "./raw-record-reader.js"
         }
       ],
       "format": "esm"
@@ -552,7 +578,7 @@
       "format": "esm"
     },
     "src/worker.ts": {
-      "bytes": 17649,
+      "bytes": 18707,
       "imports": [
         {
           "path": "src/raw-record-reader.ts",
@@ -563,6 +589,11 @@
           "path": "src/collection-window-audit.ts",
           "kind": "import-statement",
           "original": "./collection-window-audit.js"
+        },
+        {
+          "path": "src/activity-raw-repair.ts",
+          "kind": "import-statement",
+          "original": "./activity-raw-repair.js"
         },
         {
           "path": "src/data-coverage.ts",
@@ -748,6 +779,11 @@
           "path": "src/collection-window-audit.ts",
           "kind": "import-statement",
           "original": "./collection-window-audit.js"
+        },
+        {
+          "path": "src/activity-raw-repair.ts",
+          "kind": "import-statement",
+          "original": "./activity-raw-repair.js"
         }
       ],
       "format": "esm"
@@ -786,8 +822,10 @@
         "probeNativeWorkout",
         "projectHealth",
         "rawRecord",
+        "readActivityRawRepair",
         "readWindowAudit",
         "redactRawRecord",
+        "repairActivityRaw",
         "rpc",
         "runPersistentSync",
         "saveHRVEvidence",
@@ -819,7 +857,7 @@
           "bytesInOutput": 6913
         },
         "src/raw-record-reader.ts": {
-          "bytesInOutput": 7672
+          "bytesInOutput": 8118
         },
         "src/collector/crypto.ts": {
           "bytesInOutput": 3649
@@ -833,6 +871,27 @@
         "src/collection-window-audit.ts": {
           "bytesInOutput": 8195
         },
+        "src/activity-raw-repair.ts": {
+          "bytesInOutput": 6585
+        },
+        "src/activity-details.ts": {
+          "bytesInOutput": 8439
+        },
+        "src/workout-decoder.ts": {
+          "bytesInOutput": 2906
+        },
+        "src/semantics.ts": {
+          "bytesInOutput": 7534
+        },
+        "src/hrv-evidence.ts": {
+          "bytesInOutput": 3123
+        },
+        "src/daily-health.ts": {
+          "bytesInOutput": 14576
+        },
+        "src/freshness.ts": {
+          "bytesInOutput": 608
+        },
         "src/collector/models.ts": {
           "bytesInOutput": 288
         },
@@ -842,26 +901,8 @@
         "src/ingestion-quarantine.ts": {
           "bytesInOutput": 943
         },
-        "src/hrv-evidence.ts": {
-          "bytesInOutput": 3123
-        },
         "src/persistence.ts": {
           "bytesInOutput": 44605
-        },
-        "src/workout-decoder.ts": {
-          "bytesInOutput": 2906
-        },
-        "src/activity-details.ts": {
-          "bytesInOutput": 6495
-        },
-        "src/semantics.ts": {
-          "bytesInOutput": 7534
-        },
-        "src/daily-health.ts": {
-          "bytesInOutput": 14576
-        },
-        "src/freshness.ts": {
-          "bytesInOutput": 608
         },
         "src/workout-analysis.ts": {
           "bytesInOutput": 7408
@@ -882,7 +923,7 @@
           "bytesInOutput": 1307
         },
         "src/worker.ts": {
-          "bytesInOutput": 17405
+          "bytesInOutput": 18422
         },
         "src/dashboard.ts": {
           "bytesInOutput": 29723
@@ -891,7 +932,7 @@
           "bytesInOutput": 2655
         }
       },
-      "bytes": 224691
+      "bytes": 234791
     }
   }
 }

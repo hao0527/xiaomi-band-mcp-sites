@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {parseRecord} from '../worker/index.js';
+const r=value=>({time:1793680000,value});
+test('SpO2 and stress preserve actual values including zero stress',()=>{assert.equal(parseRecord('spo2',r({spo2:98})).data.spo2_pct,98);assert.equal(parseRecord('spo2',r(97)).data.spo2_pct,97);assert.equal(parseRecord('stress',r({stress:0})).data.stress_score,0);assert.throws(()=>parseRecord('spo2',r({spo2:150})));});
+test('unverified mass and activity units never become invented kg or totals',()=>{const d=parseRecord('weight',r({weight:63000,muscle_rate:42})).data;assert.equal(d.value,63000);assert.equal(d.unit_status,'unverified');assert(!('weight_kg' in d));assert(!('muscle_mass_kg' in d));const s=parseRecord('steps',r({steps:1})).data;assert.equal(s.distance_m,null);assert.equal(s.active_kcal,null);});
+test('generic source numeric fields exclude identifiers and coordinates',()=>{const d=parseRecord('energy',r({energy:51,userId:123,device_id:456,latitude:30.1,longitude:120.2,phone:12345})).data;assert.deepEqual(d.source_fields,{energy:51});});
+test('cloud abnormal event is a source record, never a diagnosis',()=>{const d=parseRecord('abnormal_heart_beat',r({start_time:100,end_time:130})).data;assert.equal(d.duration_seconds,30);assert.equal(d.interpretation,'not_a_diagnosis');});

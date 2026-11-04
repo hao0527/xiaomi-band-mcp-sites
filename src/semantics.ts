@@ -1,0 +1,26 @@
+export type FieldMeta={unit:string|null;meaning:string;kind:'raw'|'converted'|'calculated';confidence:'verified'|'source_reported'|'unverified';source:string;method?:string;warning?:string};
+const meta=(unit:string|null,meaning:string,kind:FieldMeta['kind'],confidence:FieldMeta['confidence'],source:string,warning?:string):FieldMeta=>({unit,meaning,kind,confidence,source,...(warning?{warning}: {})});
+export const dataContract={version:'2.1',confidence_scope:'verified means schema/units/arithmetic checked, not clinical accuracy',kinds:{raw:'source value unchanged',converted:'unit conversion or enum decoding',calculated:'local aggregation with stated method'},ai_rules:['Never infer a unit when unit is null.','Never treat an unverified field as confirmed.','A closed calendar day does not establish upload completeness.','Missing data is null, not zero.','Workout calories and total_cal are distinct source fields; do not add them or substitute them.','Source HRV values without verified units/algorithm are not a validated HRV trend.']};
+export function fieldSemantics(metric:string,fields:Record<string,unknown>,raw=false):Record<string,FieldMeta>{const out:Record<string,FieldMeta>={};for(const key of Object.keys(fields)){let m=meta(null,'源字段，语义或单位尚未验证','raw','unverified',metric+'.value.'+key);if(!raw){const source=metric+'.value';
+ if(['start_at','end_at','timestamp'].includes(key))m=meta('unix_second','北京时间显示的时间戳','converted','verified',source);
+ else if(['duration_minutes','time_asleep_minutes','time_awake_minutes','in_bed_minutes','session_minutes'].includes(key))m=meta('minute',key==='duration_minutes'&&metric==='sleep'?'实际睡眠时长，含深睡/浅睡/REM，不含清醒':'对应时间段的分钟数','converted',metric==='sleep'&&fields.quality&&((fields.quality as {status?:string}).status!=='validated')?'source_reported':'verified',source,metric==='sleep'?'睡眠分期以该条记录的 quality 和 stage_mapping 为准':undefined);
+ else if(key==='duration_seconds')m=meta('second','运动时长','raw','verified',source+'.duration');
+ else if(key==='bpm'||key.endsWith('_heart_rate_bpm'))m=meta('bpm','心率采样或运动心率统计','raw','verified',source);
+ else if(key==='steps')m=meta('step','分钟步数增量；跨来源不可直接求和','raw','verified',source+'.steps');
+ else if(key==='spo2_pct')m=meta('percent','血氧饱和度采样','raw','verified',source+'.spo2');
+ else if(key==='stress_score')m=meta('source_score_0_100','小米压力评分，不代表医学诊断','raw','verified',source+'.stress');
+ else if(key==='distance_m')m=meta('metre','源记录距离','raw','source_reported',source+'.distance');
+ else if(key==='calories_kcal'||key==='active_kcal')m=meta('kcal','源 calories 字段；分钟记录或单次运动的消耗','raw','source_reported',source+'.calories','该私有接口未证实活动/净消耗的精确定义；不可与 total_cal 相加');
+ else if(key==='total_calories_kcal')m=meta('kcal','源 total_cal 字段，独立保留','raw','source_reported',source+'.total_cal','是否包含静息消耗尚未验证，不替代 calories');
+ else if(key==='stages'||key==='stage_minutes')m=meta('minute','分期枚举转换及分段时长统计','calculated',fields.stage_mapping==='unverified'?'unverified':'verified',source+'.items');
+ } else if(['start_time','end_time','time','bedtime','wake_up_time'].includes(key))m=meta('unix_second','源时间戳','raw','verified',metric+'.value.'+key);
+ if(key==='recover_time'||key==='recovery_time_raw')m=meta(null,'源 recover_time 恢复指标；单位未验证','raw','unverified','sport.value.recover_time','不能把20解释为20小时、分钟或秒；不得用于确定恢复建议');
+ if(raw&&['calories','total_cal'].includes(key))m=meta('kcal',key==='calories'?'源 calories 消耗值':'源 total_cal 消耗值','raw','source_reported','sport.value.'+key,'两字段定义差异未由该私有接口证实；独立保留，不能相加或相互替代');
+ if(raw&&/hrv/i.test(key))m=meta(null,'源 HRV 相关字段，算法和单位未验证','raw','unverified',metric+'.value.'+key);
+ if(!raw&&metric==='sport'&&key==='duration_minutes')m={...meta('minute','源运动时长换算为整分钟；保留旧接口向下取整行为','converted','verified','sport.value.duration'),method:'floor(duration_seconds / 60) || floor((end_at - start_at) / 60)'};
+ if(!raw&&metric==='sleep'&&key==='in_bed_minutes')m={...meta('minute','源在床边界之间的时长；不等于睡眠分期区间','calculated','source_reported','sleep.value.bed_timestamp,out_bed_timestamp'),method:'(out_bed_timestamp - bed_timestamp) / 60; unavailable boundaries fall back to session_minutes',warning:'可能包含分期区间前后时间；不能当作实际睡眠时长'};
+ if(!raw&&metric==='sleep'&&key==='session_minutes')m={...meta('minute','解析选用的入睡至醒来边界之间的时长','calculated','verified','sleep.value.bedtime,wake_up_time (fallback paths in time_boundaries)'),method:'(end_at - start_at) / 60'};
+ if(raw&&metric==='sport'&&['avg_hrm','max_hrm','min_hrm'].includes(key))m=meta('bpm','源运动心率统计；汇总算法未验证','raw','source_reported','sport.value.'+key);
+ if(raw&&metric==='sport'&&key==='duration')m=meta('second','源运动时长；与原生文件记录区间交叉核对','raw','source_reported','sport.value.duration','独立保留；可能与 end_time-start_time 存在边界差异');
+ if(raw&&['bed_timestamp','out_bed_timestamp'].includes(key))m=meta('unix_second','源在床边界时间戳','raw','source_reported',metric+'.value.'+key);
+ out[key]=m;}return out;}

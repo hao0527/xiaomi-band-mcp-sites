@@ -1,0 +1,28 @@
+// Cloud state codes are verified against each record's own named stage totals.
+// Health Kit's public SDK uses a different enum; never apply that enum blindly.
+type Fields=Record<string,unknown>;type Segment={start_at:number;end_at:number;source_state:number;minutes:number;stage:string};
+const finite=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=0;
+const maps=[{name:'cloud_2deep_3light_4rem_5awake',map:{2:'deep',3:'light',4:'rem',5:'awake'}},{name:'sdk_1light_2deep_3rem_4awake',map:{1:'light',2:'deep',3:'rem',4:'awake'}},{name:'alternate_2light_3deep_4rem_5awake',map:{2:'light',3:'deep',4:'rem',5:'awake'}}] as const;
+export function normalizeSleep(p:Fields,fallbackTime:number){
+ const start=Number(p.bedtime??p.device_bedtime??p.bed_timestamp),end=Number(p.wake_up_time??p.device_wake_up_time??p.out_bed_timestamp??fallbackTime);
+ if(!finite(start)||!finite(end)||end<start||end-start>3*86400)throw new Error('INVALID_SLEEP_RANGE');
+ const expected:Record<string,number|null>={deep:finite(p.sleep_deep_duration)?p.sleep_deep_duration:null,light:finite(p.sleep_light_duration)?p.sleep_light_duration:null,rem:finite(p.sleep_rem_duration)?p.sleep_rem_duration:null,awake:finite(p.sleep_awake_duration)?p.sleep_awake_duration:finite(p.awake_duration)?p.awake_duration:null};
+ if(p.items!==undefined&&!Array.isArray(p.items))throw new Error('INVALID_SLEEP_SEGMENTS');
+ const segments:Segment[]=(p.items as Fields[]??[]).map(s=>{const a=Number(s.start_time??s.start),b=Number(s.end_time??s.end),code=Number(s.state);if(!finite(a)||!finite(b)||a<start||b>end||b<a||!Number.isInteger(code))throw new Error('INVALID_SLEEP_SEGMENT');return {start_at:a,end_at:b,source_state:code,minutes:(b-a)/60,stage:'unknown'};}).sort((a,b)=>a.start_at-b.start_at);
+ const overlaps=segments.some((s,i)=>i>0&&s.start_at<segments[i-1].end_at),coverage=segments.reduce((n,s)=>n+s.minutes,0),elapsed=(end-start)/60;
+ const candidates=segments.length&&!overlaps?maps.filter(c=>{const totals:Record<string,number>={deep:0,light:0,rem:0,awake:0};for(const s of segments){const k=(c.map as Record<number,string>)[s.source_state];if(!k)return false;totals[k]+=s.minutes;}return Object.values(expected).filter(x=>x!==null).length>=3&&Object.entries(expected).every(([k,v])=>v===null||Math.abs(totals[k]-v)<1/60);}):[];
+ const mapping=candidates.length===1?candidates[0]:null,issues:string[]=[];if(segments.length&&!mapping)issues.push('STAGE_CODES_NOT_VERIFIED');if(overlaps)issues.push('OVERLAPPING_SEGMENTS');if(segments.length&&Math.abs(coverage-elapsed)>1/60)issues.push('SEGMENT_COVERAGE_MISMATCH');
+ if(mapping)for(const s of segments)s.stage=(mapping.map as Record<number,string>)[s.source_state];
+ const stageSeconds=Object.fromEntries(['deep','light','rem','awake'].map(k=>[k,segments.filter(s=>s.stage===k).reduce((n,s)=>n+s.minutes,0)]));
+ const sourceStageTotal=['deep','light','rem'].every(k=>expected[k]!==null)?Number(expected.deep)+Number(expected.light)+Number(expected.rem):null;
+ const awake=mapping?stageSeconds.awake:expected.awake;
+ // duration represents asleep time for cloud sleep records, not time in bed.
+ const target=sourceStageTotal!==null&&sourceStageTotal>0?sourceStageTotal:awake!==null?elapsed-awake:null;
+ const raw=finite(p.duration)?p.duration:null,unit=raw!==null&&target!==null?(Math.abs(raw-target)<1/60?'minute':Math.abs(raw/60-target)<1/60?'second':null):null;
+ let asleep:number|null=unit==='minute'?raw:unit==='second'?Number(raw)/60:null;
+ if(asleep===null&&mapping&&Math.abs(coverage-elapsed)<1/60)asleep=stageSeconds.deep+stageSeconds.light+stageSeconds.rem;
+ if(asleep===null)issues.push('SLEEP_DURATION_UNIT_UNVERIFIED');
+ if(asleep!==null&&awake!==null&&Math.abs(asleep+awake-elapsed)>1/60)issues.push('DURATION_BALANCE_MISMATCH');
+ const inBed=finite(p.bed_timestamp)&&finite(p.out_bed_timestamp)&&p.out_bed_timestamp>=p.bed_timestamp?(p.out_bed_timestamp-p.bed_timestamp)/60:null;
+ return {time_boundaries:{session_start_at:start,session_end_at:end,in_bed_start_at:finite(p.bed_timestamp)?p.bed_timestamp:null,in_bed_end_at:finite(p.out_bed_timestamp)?p.out_bed_timestamp:null,session_start_source:finite(p.bedtime)?'bedtime':finite(p.device_bedtime)?'device_bedtime':'bed_timestamp',session_end_source:finite(p.wake_up_time)?'wake_up_time':finite(p.device_wake_up_time)?'device_wake_up_time':finite(p.out_bed_timestamp)?'out_bed_timestamp':'fallback',in_bed_method:finite(p.bed_timestamp)&&finite(p.out_bed_timestamp)&&p.out_bed_timestamp>=p.bed_timestamp?'source_bed_boundaries':'fallback_session_interval',unit:'unix_second',warning:'in_bed includes source bed boundaries; session is the selected sleep interval; arithmetic validity does not establish source completeness'},start_at:start,end_at:end,duration_minutes:asleep,time_asleep_minutes:asleep,time_awake_minutes:awake,in_bed_minutes:inBed,session_minutes:elapsed,sleep_score:finite(p.score)?p.score:finite(p.sleep_score)?p.sleep_score:null,is_nap:typeof p.is_nap==='boolean'?p.is_nap:null,stages:segments,stage_minutes:{deep:mapping?stageSeconds.deep:null,light:mapping?stageSeconds.light:null,rem:mapping?stageSeconds.rem:null,awake:mapping?stageSeconds.awake:null},source_stage_minutes:expected,source_duration:raw,source_duration_unit:unit,stage_mapping:mapping?.name??'unverified',source_complete:p.is_uncomplete===false?true:p.is_uncomplete===true?false:null,quality:{status:issues.length?'partial':'validated',issues,stage_mapping_evidence:mapping?'segments_match_named_source_totals':'unverified',time_unit_evidence:unit?'duration_matches_timestamps_and_stage_totals':'unverified'},parser_version:'quality-v2'};
+}

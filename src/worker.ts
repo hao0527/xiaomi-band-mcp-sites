@@ -48,7 +48,7 @@ export default {async fetch(request:Request,env:PersistentEnv):Promise<Response>
   if(request.method==='GET'&&url.pathname==='/settings-guide')return new Response(ui,{headers:{...safeHeaders,'Content-Type':'text/html; charset=utf-8'}});
   if(request.method==='GET'&&url.pathname==='/api/preflight'){if(url.search)return json({error:'QUERY_PARAMETERS_NOT_ALLOWED'},400);return json({...preflight(env),healthDataPersistence:!!env.DB,databaseBound:!!env.DB,persistentSyncEnabled:env.PERSIST_SYNC_ENABLED==='true'});}
   if(request.method==='GET'&&url.pathname.startsWith('/api/')){try{
-    if(url.pathname==='/api/raw-record'){try{return json(await rawRecord(env,url.searchParams.get('ref')??'',Number(url.searchParams.get('offset')??0),Number(url.searchParams.get('limit')??8192),url.searchParams.get('snapshot_hash')??undefined));}catch(e){return json({error:e instanceof CollectorError&&rawReadErrors.has(e.code)?e.code:'RAW_READ_FAILED'},400);}}
+    if(url.pathname==='/api/raw-record'){try{return json(await rawRecord(env,url.searchParams.get('ref')??'',Number(url.searchParams.get('offset')??0),Number(url.searchParams.get('limit')??8192),url.searchParams.get('snapshot_hash')??undefined,url.searchParams.get('component')??undefined));}catch(e){return json({error:e instanceof CollectorError&&rawReadErrors.has(e.code)?e.code:'RAW_READ_FAILED'},400);}}
     if(url.pathname==='/api/data-coverage'){const r=validRange(url.searchParams.get('start'),url.searchParams.get('end'),31);return json(await dataCoverage(env,r.start,r.end,url.searchParams.get('metric')??undefined));}
     if(url.pathname==='/api/steps-audit'){const r=validRange(url.searchParams.get('start'),url.searchParams.get('end'),31);return json((await stepsAudit(env,r.start,r.end)).result);}
     if(url.pathname==='/api/activity-heart-rate-samples')return json(await activityHeartRateSamples(env,url.searchParams.get('ref')??'',Number(url.searchParams.get('offset')??0),Number(url.searchParams.get('limit')??1000)));
@@ -107,3 +107,6 @@ export {probeHRVCloud} from './hrv-cloud-probe.js';
 
 export {rawRecord,redactRawRecord} from './raw-record-reader.js';
 export {dataCoverage} from './data-coverage.js';
+
+export {fetchActivityDetails} from './activity-details.js';
+export {saveRejectedRecords} from './ingestion-quarantine.js';

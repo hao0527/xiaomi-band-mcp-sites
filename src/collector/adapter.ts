@@ -2,7 +2,7 @@ import {encryptRequest,rc4,text,unb64} from './crypto.js';
 import {CollectorError,allowedURL,boundedText,nativeFetcher,type Fetcher} from './http.js';
 import {loginWithToken,type Session} from './auth.js';
 import {object,validateRaw,dateRange} from './parser.js';
-import type {MetricKey,Page} from './models.js';
+import type {MetricKey,Page,RejectedRecord,RawRecord} from './models.js';
 export const FITNESS_PATH='/app/v1/data/get_fitness_data_by_time';export const SPORT_PATH='/app/v1/data/get_sport_records_by_time';
 export const AGGREGATE_PATH='/app/v1/data/get_aggregated_fitness_data_by_time';export const SPORT_OPERATIONAL_PATH='/app/v1/operate/get_sport_operational_data';
 export interface RetryPolicy {now?:()=>number;maxWaitMs?:number;totalWaitMs?:number;}
@@ -42,7 +42,7 @@ export class MiFitnessAdapter {
     const result=await this.request(key==='sport'?SPORT_PATH:key==='steps_daily_aggregate'?AGGREGATE_PATH:FITNESS_PATH,payload),raw=result[key==='sport'?'sport_records':'data_list']??[];
     if(!Array.isArray(raw))throw new CollectorError('INVALID_PAGE');if(raw.length>5000)throw new CollectorError('PAGE_RECORD_LIMIT');if(result.has_more!==undefined&&typeof result.has_more!=='boolean')throw new CollectorError('INVALID_HAS_MORE');
     const next=result.next_key;if(next!==undefined&&next!==null&&typeof next!=='string')throw new CollectorError('INVALID_CURSOR');if(typeof next==='string'&&next.length>4096)throw new CollectorError('INVALID_CURSOR');
-    const belowWindow=key==='steps_daily_aggregate'&&raw.some(x=>x&&typeof x==='object'&&Number((x as Record<string,unknown>).time)<times.start);const hasMore=result.has_more===true&&!belowWindow;if(hasMore&&!next)throw new CollectorError('CURSOR_MISSING');
-    const records=raw.map(item=>{const r=object(item);if(!Number.isSafeInteger(r.time)||Number(r.time)<0||Number(r.time)>4102444800)throw new CollectorError('INVALID_SECONDS_TIMESTAMP');if(r.sid!==undefined&&typeof r.sid!=='string')throw new CollectorError('INVALID_SID');return r as unknown as import('./models.js').RawRecord;}).filter(r=>r.time>=times.start&&r.time<=times.end);return {records,hasMore,nextKey:hasMore?String(next):null};
+    const belowWindow=key==='steps_daily_aggregate'&&raw.some(x=>x&&typeof x==='object'&&Number.isSafeInteger((x as Record<string,unknown>).time)&&Number((x as Record<string,unknown>).time)>=0&&((x as Record<string,unknown>).sid===undefined||typeof (x as Record<string,unknown>).sid==='string')&&Number((x as Record<string,unknown>).time)<times.start);const hasMore=result.has_more===true&&!belowWindow;if(hasMore&&!next)throw new CollectorError('CURSOR_MISSING');
+    const records:RawRecord[]=[],rejected:RejectedRecord[]=[];for(const [index,item] of raw.entries()){try{const r=object(item);if(!Number.isSafeInteger(r.time)||Number(r.time)<0||Number(r.time)>4102444800)throw new CollectorError('INVALID_SECONDS_TIMESTAMP');if(r.sid!==undefined&&typeof r.sid!=='string')throw new CollectorError('INVALID_SID');if(Number(r.time)>=times.start&&Number(r.time)<=times.end)records.push(r as unknown as RawRecord);}catch(e){const reason=e instanceof CollectorError&&['INVALID_OBJECT','INVALID_SECONDS_TIMESTAMP','INVALID_SID'].includes(e.code)?e.code as RejectedRecord['reason']:'INVALID_OBJECT';rejected.push({raw:item,reason,index});}}return {records,hasMore,nextKey:hasMore?String(next):null,...(rejected.length?{rejected}:{})};
   }
 }

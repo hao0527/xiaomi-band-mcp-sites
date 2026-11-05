@@ -8,7 +8,7 @@
 3. running：等待返回的 poll_after_seconds，再查询 get_sync_progress。若转为 partial，继续第2步。
 4. busy 且 requested_sync_started=false：现有历史批次持有全局租约，请等待后重新调用 trigger_sync，不要把旧任务 completed 当成新请求已完成。
 5. completed：读取 get_daily_summary；completed_with_errors：先说明 failed_metrics，再读取已有数据。
-6. failed：停止；不能自动重试登录。仅在用户明确重试且问题已处理后传 retry_failed:true。superseded：旧ID不能重启新任务，应重新检查当前任务。
+6. failed：停止；不能自动重试登录。用户明确要求恢复失败任务时，可按 failure_recovery 传同一ID和 retry_failed:true 做一次有界恢复；再次失败立即停止。superseded：旧ID不能重启新任务，应重新检查当前任务。
 
 运行方式：每次最多8页、循环时间预算18秒（单个上游请求仍受20秒超时控制），无后台无限循环。AI通过有限多次工具调用接续到完成。相同任务ID不重新请求已提交页；两分钟内完成结果直接复用。分页、去重和UPSERT复用既有核心。
 
@@ -19,3 +19,5 @@
 迁移0002仅在sync_jobs追加运行ID、开始时间和固定错误码三个字段；不重建健康表。旧迁移保持不变。
 
 原生运动文件现已接入上述普通同步：每批在剩余时间预算内复用本次登录会话，最多查询1条今天/昨天缺失文件的下载地址，并最多下载1个文件。已保存或已有失败、空响应、checking记录的缓存不自动重抓。常规指标完成但仍有待获取文件时保持partial，使用同一sync_id续传；native_files显示独立状态。详见 [原生文件同步](NATIVE_WORKOUT_SYNC.md)。无需新增迁移或MCP工具。
+
+新增网络故障诊断和明确恢复参数，见 [失败诊断与恢复](SYNC_FAILURE_RECOVERY.md)。旧 NETWORK_FAILURE 错误码保持兼容，未知的旧失败不会被推断为超时。

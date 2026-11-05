@@ -1,5 +1,22 @@
 export type Fetcher=(url:string,init:RequestInit)=>Promise<Response>;
-export class CollectorError extends Error { constructor(public code:string){super(code);this.name='CollectorError';} }
+export interface RequestFailureDetails {
+ operation:'fitness_data'|'sport_records'|'daily_aggregate'|'sport_operational'|'native_reference';
+ stage:'response_headers'|'response_body';
+ kind:'timeout'|'aborted'|'transport_error'|'response_read_error';
+ elapsed_ms:number;timeout_cap_ms:number;http_status:number|null;
+}
+export class CollectorError extends Error { constructor(public code:string,public readonly request_failure?:RequestFailureDetails){super(code);this.name='CollectorError';} }
+// Only fixed labels and bounded numbers; never inspect or save exception messages,
+// URLs, headers, signatures, cookies, cursor values or response/source contents.
+export function networkFailure(signal:AbortSignal,started:number,operation:RequestFailureDetails['operation'],stage:RequestFailureDetails['stage'],httpStatus:number|null=null){
+ const reason=signal.aborted?signal.reason:null,timeout=reason&&typeof reason==='object'&&reason.name==='TimeoutError';
+ return new CollectorError('NETWORK_FAILURE',{operation,stage,kind:timeout?'timeout':signal.aborted?'aborted':stage==='response_body'?'response_read_error':'transport_error',elapsed_ms:Math.min(3600000,Math.max(0,Date.now()-started)),timeout_cap_ms:20000,http_status:httpStatus});
+}
+export function safeRequestFailure(v:unknown):RequestFailureDetails|null{
+ if(!v||typeof v!=='object')return null;const r=v as Record<string,unknown>;
+ if(typeof r.operation!=='string'||!['fitness_data','sport_records','daily_aggregate','sport_operational','native_reference'].includes(r.operation)||typeof r.stage!=='string'||!['response_headers','response_body'].includes(r.stage)||typeof r.kind!=='string'||!['timeout','aborted','transport_error','response_read_error'].includes(r.kind)||!Number.isSafeInteger(r.elapsed_ms)||Number(r.elapsed_ms)<0||Number(r.elapsed_ms)>3600000||r.timeout_cap_ms!==20000||r.http_status!==null&&(!Number.isInteger(r.http_status)||Number(r.http_status)<100||Number(r.http_status)>599))return null;
+ return {operation:r.operation as RequestFailureDetails['operation'],stage:r.stage as RequestFailureDetails['stage'],kind:r.kind as RequestFailureDetails['kind'],elapsed_ms:Number(r.elapsed_ms),timeout_cap_ms:20000,http_status:r.http_status as number|null};
+}
 const allowedHosts=new Set(['account.xiaomi.com','sts-hlth.io.mi.com','hlth.io.mi.com']);
 export function allowedURL(input:string):URL {let u:URL;try{u=new URL(input);}catch{throw new CollectorError('BLOCKED_URL');}if(u.protocol!=='https:'||!allowedHosts.has(u.hostname)||u.username||u.password||(u.port&&u.port!=='443')||u.hash)throw new CollectorError('BLOCKED_URL');return u;}
 // Explicit opt-in only. No caller in this prototype enables it.

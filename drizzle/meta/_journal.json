@@ -57,6 +57,13 @@
       "when": 1793795400000,
       "tag": "0007_activity_raw_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793886986590,
+      "tag": "0008_sync_failure_details",
+      "breakpoints": true
     }
   ]
 }

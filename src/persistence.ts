@@ -1,3 +1,4 @@
+import {saveSyncFailure} from './sync-failure-details.js';
 import {saveRejectedRecords} from './ingestion-quarantine.js';
 import {rawRecord,rawReadErrors} from './raw-record-reader.js';
 import {dataCoverage} from './data-coverage.js';
@@ -42,7 +43,7 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
  }
  const oldest=addDays(today,-364),histEnd=addDays(today,-2);if(!options.liveOnly)await d.prepare('INSERT OR IGNORE INTO sync_history(id,start_date,end_date,metric_index,current_date,updated_at) VALUES(1,?,?,0,?,?)').bind(oldest,histEnd,histEnd,now).run();
  const acquired=await d.prepare('UPDATE sync_jobs SET lease_token=?,lease_until=? WHERE id=1 AND lease_until<=?').bind(token,Date.now()+180000,Date.now()).run();if(!acquired.meta.changes)throw new CollectorError('SYNC_BUSY');
- let processed=0,pages=0,failures=0,quarantined=0;const touched=new Set<string>();try{
+ let failureMetric:string|null=null,failureDate:string|null=null;let processed=0,pages=0,failures=0,quarantined=0;const touched=new Set<string>();try{
   if(!env.MI_USER_ID||!env.MI_PASS_TOKEN)throw new CollectorError('SECRETS_NOT_CONFIGURED');
   live=(await d.prepare('SELECT * FROM sync_jobs WHERE id=1').first<Job>())!;
   if(options.liveOnly&&live.complete&&!pendingNative)return {status:'already_current',liveThrough:live.end_date,liveComplete:true};
@@ -53,17 +54,18 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   const adapter=new MiFitnessAdapter(transport,undefined,undefined,{totalWaitMs:1500,maxWaitMs:1000});await adapter.login(env.MI_USER_ID,env.MI_PASS_TOKEN);
   const started=Date.now();if(!job.complete)await fetchActivityDetails(env,adapter,...(options.liveOnly?[live.start_date,live.end_date] as [string,string]:[] as []));
   while(pages<(options.maxPages??12)&&!job.complete&&Date.now()-started<(options.budgetMs??45000)){const key=keys[job.metric_index];if(!key)throw new CollectorError('SYNC_STATE_INVALID');let page;
-   try{page=await adapter.page(key,job.current_date,job.current_date,job.cursor);}catch(e){const code=safeError(e);await log(d,'failed',key,job.current_date,0,code);await capability(d,key,'error',0,code);if(['AUTH_EXPIRED','INTERACTIVE_AUTH_REQUIRED','UPSTREAM_HTTP_ERROR','UPSTREAM_RATE_LIMITED','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','UPSTREAM_RETRY_DEFERRED','NETWORK_FAILURE','UPSTREAM_RETRY_EXHAUSTED','PAGE_RECORD_LIMIT'].includes(code))throw e;failures++;advance(job);await checkpoint(d,job,token,table);pages++;continue;}
+   try{failureMetric=key;failureDate=job.current_date;page=await adapter.page(key,job.current_date,job.current_date,job.cursor);}catch(e){const code=safeError(e);await log(d,'failed',key,job.current_date,0,code);await capability(d,key,'error',0,code);if(['AUTH_EXPIRED','INTERACTIVE_AUTH_REQUIRED','UPSTREAM_HTTP_ERROR','UPSTREAM_RATE_LIMITED','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','UPSTREAM_RETRY_DEFERRED','NETWORK_FAILURE','UPSTREAM_RETRY_EXHAUSTED','PAGE_RECORD_LIMIT'].includes(code))throw e;failures++;advance(job);await checkpoint(d,job,token,table);pages++;continue;}
    const seen=JSON.parse(job.seen_json) as string[];if(page.hasMore&&(!page.nextKey||page.nextKey===job.cursor||seen.includes(page.nextKey)||seen.length>=100))throw new CollectorError('CURSOR_LOOP');
    await saveRecords(d,key,page.records,Date.now());if(page.rejected?.length)await saveRejectedRecords(d,key,job.current_date,job.current_date,page.rejected,Date.now());touched.add(job.current_date);processed+=page.records.length;pages++;await log(d,'page_committed',key,job.current_date,page.records.length);if(page.rejected?.length){quarantined+=page.rejected.length;await log(d,'page_quarantined',key,job.current_date,page.rejected.length,'SOURCE_RECORDS_QUARANTINED');}await capability(d,key,page.records.length?'data_returned':'no_records_in_range',page.records.length,null);
    if(page.hasMore){job.cursor=page.nextKey;job.seen_json=JSON.stringify([...seen,page.nextKey]);}else advance(job);await checkpoint(d,job,token,table);
   }
+  failureMetric=null;failureDate=null;
   for(const date of touched)await summarize(d,date,Date.now());
   const nativeFile=await fetchPendingNativeWorkout(env,adapter,token,live.start_date,live.end_date,started+(options.budgetMs??45000),options.nativeDownload);
   const nativeFiles=await nativeSyncState(env,live.start_date,live.end_date);
   const latest=await d.prepare('SELECT complete,end_date FROM sync_jobs WHERE id=1').first<{complete:number;end_date:string}>();const hist=await d.prepare('SELECT complete FROM sync_history WHERE id=1').first<{complete:number}>();
   return {status:latest?.complete&&hist?.complete&&!nativeFiles.pending?'complete':'partial',plan,pages,recordsProcessed:processed,failedPages:failures,quarantinedRecords:quarantined,data_quality:quarantined?'partial_source_records_quarantined':'no_new_quarantined_records',startDate:job.start_date,endDate:job.end_date,liveThrough:latest?.end_date,liveComplete:!!latest?.complete,historyComplete:!!hist?.complete,native_file_batch:nativeFile,native_files:nativeFiles,nextMetric:job.complete?null:keys[job.metric_index],nextDate:job.complete?null:job.current_date,todayIsPartial:true};
- }catch(e){const code=syncErrorCode(e);await log(d,'failed',null,null,0,code);if(options.liveOnly)await d.prepare('UPDATE sync_jobs SET run_error_code=?,updated_at=? WHERE id=1 AND lease_token=?').bind(code,Date.now(),token).run();throw e;}finally{await d.prepare('UPDATE sync_jobs SET lease_token=NULL,lease_until=0 WHERE id=1 AND lease_token=?').bind(token).run();}
+ }catch(e){const code=syncErrorCode(e),at=Date.now();await log(d,'failed',null,null,0,code);if(options.liveOnly)await d.prepare('UPDATE sync_jobs SET run_error_code=?,updated_at=? WHERE id=1 AND lease_token=?').bind(code,at,token).run();try{await saveSyncFailure(d,live?.run_id??null,e,failureMetric,failureDate,at);}catch{await log(d,'diagnostic_unavailable',null,null,0,'SYNC_DIAGNOSTIC_SAVE_FAILED');}throw e;}finally{await d.prepare('UPDATE sync_jobs SET lease_token=NULL,lease_until=0 WHERE id=1 AND lease_token=?').bind(token).run();}
 }
 function advance(j:Job){j.cursor=null;j.seen_json='[]';j.metric_index++;if(j.metric_index>=keys.length){j.metric_index=0;if(j.current_date>j.start_date)j.current_date=addDays(j.current_date,-1);else j.complete=1;}}
 async function capability(d:Database,key:string,status:string,count:number,error:string|null){await d.prepare('INSERT INTO metric_capabilities(metric,last_checked,status,last_count,error_code) VALUES(?,?,?,?,?) ON CONFLICT(metric) DO UPDATE SET last_checked=excluded.last_checked,status=excluded.status,last_count=excluded.last_count,error_code=excluded.error_code').bind(key,Date.now(),status,count,error).run();}
@@ -129,8 +131,8 @@ async function readDailyQuery(env:PersistentEnv,args:Record<string,unknown>){
 }
 const dates={start_date:{type:'string',description:'北京时间起始日期 YYYY-MM-DD'},end_date:{type:'string',description:'北京时间结束日期 YYYY-MM-DD，可包含今天'}},paging={cursor:{type:'string',maxLength:1024},limit:{type:'integer',minimum:1,maximum:2000}};
 const definitions:Array<{name:string;props:Record<string,unknown>;description:string}>=[
- {name:'trigger_sync',props:{sync_id:{type:'string',description:'首调用省略；partial 时传回同一 sync_id 继续，禁止重开任务。'},retry_failed:{type:'boolean',description:'默认false。仅在用户明确要求重试且错误已处理后设为true；不得自动重试认证。'}},description:'写入工具：按用户明确同步请求刷新北京时间今天和昨天的全部已有指标，每次有限批次，并复用本次会话获取最多1条窗口内缺失的原生运动文件。已有文件及失败/空响应不自动重抓。partial 时必须以同一sync_id继续调用直到completed或completed_with_errors，之后才能读取摘要分析；running时查询get_sync_progress；busy且请求未启动时等待后重新trigger_sync，失败立即停止，不自动重试登录。两分钟内复用完成结果，保留独立历史回填断点。'},
- {name:'get_sync_progress',props:{sync_id:{type:'string',description:'可省略以查看当前实时同步；传回trigger_sync返回的ID。'}},description:'只读同步进度、分日指标成功/空结果/失败、原生运动文件待获取/已保存/失败数量、最新数据时间及下一步。该工具不执行同步；partial 需要trigger_sync继续，running等待，failed停止。'},
+ {name:'trigger_sync',props:{sync_id:{type:'string',description:'首调用省略；partial 时传回同一 sync_id 继续，禁止重开任务。'},retry_failed:{type:'boolean',description:'默认false。仅在用户明确要求恢复或重试失败任务时设为true，保留原断点；本次再失败立即停止，不得自动重复。'}},description:'写入工具：按用户明确同步请求刷新北京时间今天和昨天的全部已有指标，每次有限批次，并复用本次会话获取最多1条窗口内缺失的原生运动文件。已有文件及失败/空响应不自动重抓。partial 时必须以同一sync_id继续调用直到completed或completed_with_errors，之后才能读取摘要分析；running时查询get_sync_progress；busy且请求未启动时等待后重新trigger_sync，失败立即停止；用户明确要求恢复时按failure_recovery以同一ID和retry_failed=true恢复一次，不自动重试登录。两分钟内复用完成结果，保留独立历史回填断点。'},
+ {name:'get_sync_progress',props:{sync_id:{type:'string',description:'可省略以查看当前实时同步；传回trigger_sync返回的ID。'}},description:'只读同步进度、分日指标成功/空结果/失败、原生运动文件状态、最新数据时间、失败诊断（若有）及显式恢复参数。该工具不执行同步；partial 需要trigger_sync继续，running等待，failed停止。'},
  {name:'get_daily_summary',props:{date:{type:'string',description:'兼容单日完整数据；与start_date/end_date二选一。'},...dates},description:'只读每日事实数据，含已核验日步数口径、睡眠、心率、HRV字段、单位与缓存质量；不做健康评价。传date保留原单日响应，或成对传start_date/end_date读取最多7日精简数据供AI组织报告。不触发同步，空结果不代表零。'},
  {name:'get_sleep_records',props:{...dates,...paging},description:'只读睡眠记录与分期，最多90天，支持游标。'},
  {name:'get_hrv_trend',props:{...dates,...paging},description:'分页读取缓存睡眠HRV原始字段，最多90天；五个汇总字段按所有者App对账为ms；其余字段单位及算法未验证，含零占位记录，不从心率推算。'},

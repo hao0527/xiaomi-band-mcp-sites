@@ -1,5 +1,5 @@
 import {encryptRequest,rc4,text,unb64,auxiliaryEncrypted,nonce,pythonJSON,signedNonce} from './crypto.js';
-import {CollectorError,allowedURL,boundedText,nativeFetcher,type Fetcher} from './http.js';
+import {CollectorError,allowedURL,boundedText,nativeFetcher,networkFailure,type Fetcher,type RequestFailureDetails} from './http.js';
 import {loginWithToken,type Session} from './auth.js';
 import {object,validateRaw,dateRange} from './parser.js';
 import type {MetricKey,Page,RejectedRecord,RawRecord} from './models.js';
@@ -24,9 +24,9 @@ export class MiFitnessAdapter {
   async nativeFileReference(payload:Record<string,unknown>,signal=AbortSignal.timeout(20000)):Promise<Record<string,unknown>>{
     if(!this.session)throw new CollectorError('AUTH_REQUIRED');
     const n=nonce(),params=await auxiliaryEncrypted('GET','/service/gen_download_url',{data:pythonJSON(payload)},this.session.security,n);
-    let r:Response;try{r=await this.transport('https://hlth.io.mi.com'+NATIVE_FILE_PATH+'?'+new URLSearchParams(params),{method:'GET',redirect:'manual',signal,headers:{Cookie:this.session.cookies+'; userId='+this.session.userId,region_tag:'cn'}});}catch(e){if(e instanceof CollectorError)throw e;throw new CollectorError('NETWORK_FAILURE');}
+    const started=Date.now();let r:Response;try{r=await this.transport('https://hlth.io.mi.com'+NATIVE_FILE_PATH+'?'+new URLSearchParams(params),{method:'GET',redirect:'manual',signal,headers:{Cookie:this.session.cookies+'; userId='+this.session.userId,region_tag:'cn'}});}catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,'native_reference','response_headers');}
     if(r.status!==200){await r.body?.cancel();if(r.status===401||r.status===403){this.session=null;throw new CollectorError('AUTH_EXPIRED');}throw new CollectorError(r.status===429?'UPSTREAM_RATE_LIMITED':'UPSTREAM_HTTP_ERROR');}
-    let raw:string;try{raw=await boundedText(r);}catch(e){if(e instanceof CollectorError)throw e;throw new CollectorError('NETWORK_FAILURE');}
+    let raw:string;try{raw=await boundedText(r);}catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,'native_reference','response_body',r.status);}
     let body:Record<string,unknown>;try{body=object(JSON.parse(raw.startsWith('{')?raw:text(rc4(await signedNonce(this.session.security,n),unb64(raw)))));}catch{throw new CollectorError('INVALID_CLOUD_RESPONSE');}
     if([401,403,-6,-10001,2].includes(Number(body.code))){this.session=null;throw new CollectorError('AUTH_EXPIRED');}
     if(body.code!==0)throw new CollectorError('UPSTREAM_BUSINESS_ERROR');return object(body.result??{});
@@ -36,11 +36,12 @@ export class MiFitnessAdapter {
     // Keep constructor arguments compatible, but never repeat an uncertain request.
     // A later attempt requires an explicit caller decision and the same checkpoint.
       const {form,key}=await encryptRequest(payload,path,this.session.security,this.makeNonce?.());
-      let r:Response;try{r=await this.transport('https://hlth.io.mi.com'+path,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Cookie:this.session.cookies,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(form).toString()});}
-      catch(e){if(e instanceof CollectorError)throw e;throw new CollectorError('NETWORK_FAILURE');}
+      const signal=AbortSignal.timeout(20000),started=Date.now(),operation:RequestFailureDetails['operation']=path===SPORT_PATH?'sport_records':path===AGGREGATE_PATH?'daily_aggregate':path===SPORT_OPERATIONAL_PATH?'sport_operational':'fitness_data';
+      let r:Response;try{r=await this.transport('https://hlth.io.mi.com'+path,{method:'POST',redirect:'manual',signal,headers:{Cookie:this.session.cookies,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(form).toString()});}
+      catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,operation,'response_headers');}
       if(r.status===401||r.status===403){this.session=null;throw new CollectorError('AUTH_EXPIRED');}
       if(r.status!==200){await r.body?.cancel();throw new CollectorError(r.status===429?'UPSTREAM_RATE_LIMITED':'UPSTREAM_HTTP_ERROR');}
-      let raw:string;try{raw=await boundedText(r);}catch(e){if(e instanceof CollectorError)throw e;throw new CollectorError('NETWORK_FAILURE');}let body:Record<string,unknown>;
+      let raw:string;try{raw=await boundedText(r);}catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,operation,'response_body',r.status);}let body:Record<string,unknown>;
       try{body=object(JSON.parse(raw.startsWith('{')?raw:text(rc4(key,unb64(raw)))));}catch{throw new CollectorError('INVALID_CLOUD_RESPONSE');}
       const code=body.code,message=String(body.message??'').toLowerCase();
       if([401,403,-6,-10001,2].includes(Number(code))||['authentication failed','invalid credential','invalid pass token','login required','not logged in','session expired','unauthorized'].some(v=>message.includes(v))){this.session=null;throw new CollectorError('AUTH_EXPIRED');}

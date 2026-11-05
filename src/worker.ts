@@ -126,3 +126,5 @@ export {fetchActivityDetails} from './activity-details.js';
 export {saveRejectedRecords} from './ingestion-quarantine.js';
 export {auditCollectionWindows,readWindowAudit} from './collection-window-audit.js';
 export {repairActivityRaw,readActivityRawRepair} from './activity-raw-repair.js';
+
+export {networkFailure,safeRequestFailure} from './collector/http.js';

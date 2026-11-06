@@ -36,12 +36,12 @@ export class MiFitnessAdapter {
     // Keep constructor arguments compatible, but never repeat an uncertain request.
     // A later attempt requires an explicit caller decision and the same checkpoint.
       const {form,key}=await encryptRequest(payload,path,this.session.security,this.makeNonce?.());
-      const signal=AbortSignal.timeout(20000),started=Date.now(),operation:RequestFailureDetails['operation']=path===SPORT_PATH?'sport_records':path===AGGREGATE_PATH?'daily_aggregate':path===SPORT_OPERATIONAL_PATH?'sport_operational':'fitness_data';
+      const timeoutMs=path===FITNESS_PATH&&payload.key==='heart_rate'?30000:20000,signal=AbortSignal.timeout(timeoutMs),started=Date.now(),operation:RequestFailureDetails['operation']=path===SPORT_PATH?'sport_records':path===AGGREGATE_PATH?'daily_aggregate':path===SPORT_OPERATIONAL_PATH?'sport_operational':'fitness_data';
       let r:Response;try{r=await this.transport('https://hlth.io.mi.com'+path,{method:'POST',redirect:'manual',signal,headers:{Cookie:this.session.cookies,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(form).toString()});}
-      catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,operation,'response_headers');}
+      catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,operation,'response_headers',null,timeoutMs);}
       if(r.status===401||r.status===403){this.session=null;throw new CollectorError('AUTH_EXPIRED');}
       if(r.status!==200){await r.body?.cancel();throw new CollectorError(r.status===429?'UPSTREAM_RATE_LIMITED':'UPSTREAM_HTTP_ERROR');}
-      let raw:string;try{raw=await boundedText(r);}catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,operation,'response_body',r.status);}let body:Record<string,unknown>;
+      let raw:string;try{raw=await boundedText(r);}catch(e){if(e instanceof CollectorError)throw e;throw networkFailure(signal,started,operation,'response_body',r.status,timeoutMs);}let body:Record<string,unknown>;
       try{body=object(JSON.parse(raw.startsWith('{')?raw:text(rc4(key,unb64(raw)))));}catch{throw new CollectorError('INVALID_CLOUD_RESPONSE');}
       const code=body.code,message=String(body.message??'').toLowerCase();
       if([401,403,-6,-10001,2].includes(Number(code))||['authentication failed','invalid credential','invalid pass token','login required','not logged in','session expired','unauthorized'].some(v=>message.includes(v))){this.session=null;throw new CollectorError('AUTH_EXPIRED');}

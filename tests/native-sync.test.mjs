@@ -117,3 +117,40 @@ test('actual Worker trigger route resumes the native phase, with synthetic outbo
   const list=await worker.dispatchFetch('https://local.invalid/mcp',{method:'POST',body:JSON.stringify({id:1,method:'tools/list'})});assert.equal((await list.json()).result.tools.length,10);
  }finally{await worker.dispose();}
 });
+
+test('short metric budget defers a walking file without poisoning it; native-only continuation decodes it',async()=>{
+ await job();
+ const walk={...sport(),key:'walking'};
+ const f=fixture([walk],'ok',[walk]);
+ const batch=await runPersistentSync(env(),f.transport,now,{liveOnly:true,maxPages:1,budgetMs:18000,nativeDownload:f.download});
+ assert.equal(batch.native_file_batch.status,'deferred_time_budget');
+ assert.equal(batch.native_files.pending,1);
+ assert.equal(f.counts.lookup,0);
+ assert.equal(await db.prepare('SELECT status FROM workout_native_cache').first(),null);
+ const next=await runPersistentSync(env(),f.transport,now,{liveOnly:true,budgetMs:18000,nativeDownload:f.download});
+ assert.equal(next.pages,0);
+ assert.equal(next.native_files.stored,1);
+ const saved=await db.prepare("SELECT record_id FROM raw_records WHERE metric='sport'").first();
+ const result=await toolCall(env(),'get_activity_heart_rate_samples',{record_ref:saved.record_id});
+ assert.deepEqual(result.samples.map(x=>x.at),[at,at+1,at+2]);
+});
+
+test('ordinary sync resumes a legacy local timeout just once while preserving all other stop markers',async()=>{
+ await job(db,1);
+ const f=fixture();
+ const legacy={session_source:'current_sync',error_code:'NATIVE_TIME_LIMIT',download_requests:0,reference_requests:1};
+ for(const [i,evidence] of [legacy,{...legacy,download_requests:1},{...legacy,error_code:'NETWORK_FAILURE'},{...legacy,budget_resume:1}].entries()){
+  const ref='synthetic-sport-'+i;
+  await save(sport(i),ref);
+  await db.prepare("INSERT INTO workout_native_cache(record_ref,status,evidence_json,checked_at) VALUES(?,'failed',?,1)").bind(ref,JSON.stringify(evidence)).run();
+ }
+ assert.equal((await getSyncProgress(env(),id)).native_files.pending,1);
+ const result=await runPersistentSync(env(),f.transport,now,{liveOnly:true,budgetMs:18000,nativeDownload:f.download});
+ assert.equal(result.native_files.stored,1);
+ assert.equal(result.native_files.pending,0);
+ assert.equal(result.native_files.failed,3);
+ assert.equal(result.native_file_batch.evidence.previous_checked_at,1);
+ assert.equal(result.native_file_batch.evidence.budget_resume,1);
+ assert.equal(f.counts.lookup,1);
+ assert.equal(f.counts.downloads,1);
+});

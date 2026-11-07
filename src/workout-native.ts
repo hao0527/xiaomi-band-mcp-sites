@@ -17,15 +17,40 @@ const errorCode=(e:unknown)=>e instanceof CollectorError&&errors.has(e.code)?e.c
 async function activeLease(env:PersistentEnv,lease:string){if(!await env.DB!.prepare('SELECT 1 AS ok FROM sync_jobs WHERE id=1 AND lease_token=? AND lease_until>?').bind(lease,Date.now()).first())throw new CollectorError('SYNC_LEASE_LOST');}
 async function cached(env:PersistentEnv,ref:string){const old=await env.DB!.prepare('SELECT status,evidence_json,checked_at FROM workout_native_cache WHERE record_ref=?').bind(ref).first<{status:string;evidence_json:string;checked_at:number}>();return old?{status:old.status,evidence:JSON.parse(old.evidence_json) as Record<string,unknown>,checked_at:old.checked_at,cached:true}:null;}
 
-// Shared by ordinary sync and the selected-record operator action. A durable row,
-// including failed/empty/checking, is never automatically replaced or retried.
-async function collectNativeWorkout(env:PersistentEnv,ref:string,lease:string,deadline:number,lookup:(payload:Record<string,unknown>,signal:AbortSignal)=>Promise<Record<string,unknown>>,download:Fetcher,evidence:Record<string,unknown>){
- const d=env.DB!,old=await cached(env,ref);if(old)return old;
+// Ordinary sync may resume a local scheduling timeout once. The legacy collector
+// only raised NATIVE_TIME_LIMIT before issuing a request. Transport failures and
+// attempts that started a download remain terminal.
+const resumableBudgetStop = `status='failed' AND payload_base64 IS NULL
+ AND json_extract(evidence_json,'$.error_code')='NATIVE_TIME_LIMIT'
+ AND json_extract(evidence_json,'$.session_source')='current_sync'
+ AND json_extract(evidence_json,'$.download_requests')=0
+ AND json_extract(evidence_json,'$.budget_resume') IS NULL`;
+const nativeQueue = `WITH queue AS (
+ SELECT r.record_id,r.recorded_at,CASE
+ WHEN n.record_ref IS NULL OR (${resumableBudgetStop}) THEN 'pending'
+ WHEN n.payload_base64 IS NOT NULL THEN 'stored' ELSE n.status END AS state
+ FROM raw_records r LEFT JOIN workout_native_cache n ON n.record_ref=r.record_id
+ WHERE r.metric='sport' AND r.date_cn BETWEEN ? AND ?
+)`;
+const requestTimeoutMs = 20000;
+export const nativeStartBudgetMs = 2 * requestTimeoutMs + 1000;
+export const nativeBatchBudgetMs = 45000;
+
+async function collectNativeWorkout(env:PersistentEnv,ref:string,lease:string,deadline:number,lookup:(payload:Record<string,unknown>,signal:AbortSignal)=>Promise<Record<string,unknown>>,download:Fetcher,evidence:Record<string,unknown>,resumeBudgetStop=false){
+ const d=env.DB!;
  const row=await d.prepare("SELECT raw_json FROM raw_records WHERE metric='sport' AND record_id=?").bind(ref).first<{raw_json:string}>();if(!row)return {status:'not_found',cached:true};
  await activeLease(env,lease);
- const claim=await d.prepare("INSERT OR IGNORE INTO workout_native_cache(record_ref,status,evidence_json,checked_at) VALUES(?,'checking',?,?)").bind(ref,JSON.stringify(evidence),Date.now()).run();if(!claim.meta.changes)return (await cached(env,ref))!;
+ const attempt=crypto.randomUUID();
+ evidence.attempt_id=attempt;
+ const claim=await d.prepare(`INSERT INTO workout_native_cache(record_ref,status,evidence_json,checked_at) VALUES(?,'checking',?,?)
+ ON CONFLICT(record_ref) DO UPDATE SET status='checking',checked_at=excluded.checked_at,
+ evidence_json=json_set(excluded.evidence_json,'$.budget_resume',1,'$.previous_checked_at',workout_native_cache.checked_at)
+ WHERE ?=1 AND ${resumableBudgetStop}`).bind(ref,JSON.stringify(evidence),Date.now(),Number(resumeBudgetStop)).run();
+ if(!claim.meta.changes)return (await cached(env,ref))!;
+ // Read the claimed evidence, including the legacy attempt marker set atomically above.
+ Object.assign(evidence,(await cached(env,ref))!.evidence);
  let status='failed',payload:string|null=null;
- const permit=async()=>{await activeLease(env,lease);const remaining=deadline-Date.now();if(remaining<=0)throw new CollectorError('NATIVE_TIME_LIMIT');return AbortSignal.timeout(Math.min(20000,remaining));};
+ const permit=async()=>{await activeLease(env,lease);const remaining=deadline-Date.now();if(remaining<=0)throw new CollectorError('NATIVE_TIME_LIMIT');return AbortSignal.timeout(Math.min(requestTimeoutMs,remaining));};
  try{
   let r:RawRecord,timestamp:number,tz:number,proto:number,suffix:string;
   try{r=JSON.parse(row.raw_json);const p=value(r);if(typeof p.time!=='number'||typeof p.timezone!=='number'||typeof p.proto_type!=='number')throw 0;timestamp=p.time;tz=p.timezone;proto=p.proto_type;suffix=await fdsSuffix(r.sid??'',timestamp,tz,proto);}catch{status='schema_unverified';throw new CollectorError('NATIVE_SOURCE_NOT_USABLE');}
@@ -44,22 +69,24 @@ async function collectNativeWorkout(env:PersistentEnv,ref:string,lease:string,de
   }
   await activeLease(env,lease);
  }catch(e){if(status!=='schema_unverified')status='failed';payload=null;evidence.error_code=errorCode(e);}
- const at=Date.now();await d.prepare('UPDATE workout_native_cache SET status=?,evidence_json=?,payload_base64=?,checked_at=? WHERE record_ref=?').bind(status,JSON.stringify(evidence),payload,at,ref).run();
+ const at=Date.now();await d.prepare(`UPDATE workout_native_cache SET status=?,evidence_json=?,payload_base64=?,checked_at=? WHERE record_ref=? AND json_extract(evidence_json,'$.attempt_id')=?`).bind(status,JSON.stringify(evidence),payload,at,ref,attempt).run();
  return {status,evidence,checked_at:at,cached:false};
 }
 
 export async function nativeSyncState(env:PersistentEnv,start:string,end:string){
- const rows=(await env.DB!.prepare(`SELECT CASE WHEN n.record_ref IS NULL THEN 'pending' WHEN n.payload_base64 IS NOT NULL THEN 'stored' ELSE n.status END AS state,COUNT(*) AS count FROM raw_records r LEFT JOIN workout_native_cache n ON n.record_ref=r.record_id WHERE r.metric='sport' AND r.date_cn>=? AND r.date_cn<=? GROUP BY state`).bind(start,end).all<{state:string;count:number}>()).results;
+ const rows=(await env.DB!.prepare(`${nativeQueue} SELECT state,COUNT(*) AS count FROM queue GROUP BY state`).bind(start,end).all<{state:string;count:number}>()).results;
  const count=(state:string)=>rows.find(r=>r.state===state)?.count??0,pending=count('pending');
- return {scope:{start_date:start,end_date:end,timezone:'Asia/Shanghai'},pending,stored:count('stored'),not_stored_at_check:count('not_stored_at_check'),failed:count('failed'),checking:count('checking'),schema_unverified:count('schema_unverified'),max_files_per_batch:1,max_reference_requests_per_batch:1,max_download_requests_per_batch:1,automatic_retry:false,upstream_upload_complete:'unknown',next_action:pending?'continue_trigger_sync':count('failed')||count('checking')?'inspect_saved_attempt_do_not_retry_login':'read_cached_activity'};
+ return {scope:{start_date:start,end_date:end,timezone:'Asia/Shanghai'},pending,stored:count('stored'),not_stored_at_check:count('not_stored_at_check'),failed:count('failed'),checking:count('checking'),schema_unverified:count('schema_unverified'),max_files_per_batch:1,max_reference_requests_per_batch:1,max_download_requests_per_batch:1,automatic_retry:false,local_budget_resume_limit:1,upstream_upload_complete:'unknown',next_action:pending?'continue_trigger_sync':count('failed')||count('checking')?'inspect_saved_attempt_do_not_retry_login':'read_cached_activity'};
 }
 
 export async function fetchPendingNativeWorkout(env:PersistentEnv,adapter:MiFitnessAdapter,lease:string,start:string,end:string,deadline:number,download:Fetcher=fetch){
- if(Date.now()>=deadline)return {status:'deferred_time_budget',cached:true};
- const row=await env.DB!.prepare("SELECT r.record_id FROM raw_records r LEFT JOIN workout_native_cache n ON n.record_ref=r.record_id WHERE r.metric='sport' AND r.date_cn>=? AND r.date_cn<=? AND n.record_ref IS NULL ORDER BY r.recorded_at DESC,r.record_id LIMIT 1").bind(start,end).first<{record_id:string}>();
+ // Reserve time for both bounded 20-second network operations before claiming a file.
+ if(deadline-Date.now()<nativeStartBudgetMs)return {status:'deferred_time_budget',cached:true};
+ const row=await env.DB!.prepare(`${nativeQueue} SELECT record_id FROM queue WHERE state='pending' ORDER BY recorded_at DESC,record_id LIMIT 1`).bind(start,end).first<{record_id:string}>();
  if(!row)return {status:'no_pending_native_files',cached:true};
  const evidence:Record<string,unknown>={endpoint,method:'GET',signature_path:'/service/gen_download_url',requested_file_type:0,session_source:'current_sync',login_attempts:0,reference_requests:0,download_requests:0,max_reference_requests:1,max_download_requests:1,retries:0,gps_requested:false};
- const result=await collectNativeWorkout(env,row.record_id,lease,deadline,(payload,signal)=>{evidence.reference_requests=1;return adapter.nativeFileReference(payload,signal);},download,evidence);
+ const result=await collectNativeWorkout(env,row.record_id,lease,deadline,(payload,signal)=>{evidence.reference_requests=1;return adapter.nativeFileReference(payload,signal);},download,evidence,true);
+ if(result.status==='failed'&&'evidence' in result&&result.evidence?.error_code==='NATIVE_TIME_LIMIT'&&!result.evidence?.budget_resume)return {...result,status:'deferred_time_budget'};
  if(result.status==='failed')throw new CollectorError('NATIVE_FILE_FETCH_FAILED');return result;
 }
 
@@ -74,7 +101,7 @@ export async function probeNativeWorkout(env:PersistentEnv,ref:string,transport:
  const once:Fetcher=async(url,init)=>{
   await activeLease(env,lease);const remaining=deadline-Date.now();if(remaining<=0)throw new CollectorError('NATIVE_TIME_LIMIT');const target=new URL(url),health=target.hostname==='hlth.io.mi.com',counter=health?'reference_requests':'auth_http_requests';
   if(health&&target.pathname!==endpoint||Number(evidence[counter])>=(health?1:2))throw new CollectorError('NATIVE_REQUEST_LIMIT');evidence[counter]=Number(evidence[counter])+1;
-  let r:Response;try{r=await transport(url,{...init,signal:AbortSignal.timeout(Math.min(20000,remaining))});}catch{throw new CollectorError('NETWORK_FAILURE');}
+  let r:Response;try{r=await transport(url,{...init,signal:AbortSignal.timeout(Math.min(requestTimeoutMs,remaining))});}catch{throw new CollectorError('NETWORK_FAILURE');}
   if(r.status!==200){await r.body?.cancel();throw new CollectorError(r.status===401||r.status===403?'AUTH_EXPIRED':r.status===429?'UPSTREAM_RATE_LIMITED':'UPSTREAM_HTTP_ERROR');}return r;
  };
  try{

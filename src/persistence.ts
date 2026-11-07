@@ -10,7 +10,7 @@ import {buildDaily,normalizedData} from './daily-health.js';
 import {fieldSemantics,dataContract} from './semantics.js';
 import {applyStepPolicy,stepsAudit} from './step-audit.js';
 import {fetchActivityDetails,activityDetail,projectHealth} from './activity-details.js';
-import {fetchPendingNativeWorkout,nativeSyncState} from './workout-native.js';
+import {nativeStartBudgetMs,nativeBatchBudgetMs,fetchPendingNativeWorkout,nativeSyncState} from './workout-native.js';
 import {MiFitnessAdapter} from './collector/adapter.js';
 import {CollectorError,nativeFetcher,type Fetcher} from './collector/http.js';
 import {keys,type MetricKey,type RawRecord} from './collector/models.js';
@@ -52,8 +52,11 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   const plan=options.liveOnly||!live.complete?'live':'history',table=plan==='live'?'sync_jobs':'sync_history';let job=plan==='live'?live:(await d.prepare('SELECT * FROM sync_history WHERE id=1').first<Job>())!;
   if(job.complete&&!pendingNative)return {status:'already_current',liveThrough:live.end_date,historyComplete:plan==='history'};
   const adapter=new MiFitnessAdapter(transport,undefined,undefined,{totalWaitMs:1500,maxWaitMs:1000});await adapter.login(env.MI_USER_ID,env.MI_PASS_TOKEN);
-  const started=Date.now();if(!job.complete)await fetchActivityDetails(env,adapter,...(options.liveOnly?[live.start_date,live.end_date] as [string,string]:[] as []));
-  while(pages<(options.maxPages??12)&&!job.complete&&Date.now()-started<(options.budgetMs??45000)){const key=keys[job.metric_index];if(!key)throw new CollectorError('SYNC_STATE_INVALID');let page;
+  const started=Date.now(),budget=options.budgetMs??45000;
+  // A short MCP batch gives pending files their own turn before more metric pages.
+  const nativeOnly=pendingNative>0&&(!!job.complete||(options.liveOnly&&budget<nativeStartBudgetMs));
+  if(!nativeOnly&&!job.complete)await fetchActivityDetails(env,adapter,...(options.liveOnly?[live.start_date,live.end_date] as [string,string]:[] as []));
+  while(!nativeOnly&&pages<(options.maxPages??12)&&!job.complete&&Date.now()-started<budget){const key=keys[job.metric_index];if(!key)throw new CollectorError('SYNC_STATE_INVALID');let page;
    try{failureMetric=key;failureDate=job.current_date;page=await adapter.page(key,job.current_date,job.current_date,job.cursor);}catch(e){const code=safeError(e);await log(d,'failed',key,job.current_date,0,code);await capability(d,key,'error',0,code);if(['AUTH_EXPIRED','INTERACTIVE_AUTH_REQUIRED','UPSTREAM_HTTP_ERROR','UPSTREAM_RATE_LIMITED','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','UPSTREAM_RETRY_DEFERRED','NETWORK_FAILURE','UPSTREAM_RETRY_EXHAUSTED','PAGE_RECORD_LIMIT'].includes(code))throw e;failures++;advance(job);await checkpoint(d,job,token,table);pages++;continue;}
    const seen=JSON.parse(job.seen_json) as string[];if(page.hasMore&&(!page.nextKey||page.nextKey===job.cursor||seen.includes(page.nextKey)||seen.length>=100))throw new CollectorError('CURSOR_LOOP');
    await saveRecords(d,key,page.records,Date.now());if(page.rejected?.length)await saveRejectedRecords(d,key,job.current_date,job.current_date,page.rejected,Date.now());touched.add(job.current_date);processed+=page.records.length;pages++;await log(d,'page_committed',key,job.current_date,page.records.length);if(page.rejected?.length){quarantined+=page.rejected.length;await log(d,'page_quarantined',key,job.current_date,page.rejected.length,'SOURCE_RECORDS_QUARANTINED');}await capability(d,key,page.records.length?'data_returned':'no_records_in_range',page.records.length,null);
@@ -61,7 +64,8 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   }
   failureMetric=null;failureDate=null;
   for(const date of touched)await summarize(d,date,Date.now());
-  const nativeFile=await fetchPendingNativeWorkout(env,adapter,token,live.start_date,live.end_date,started+(options.budgetMs??45000),options.nativeDownload);
+  const nativeDeadline=nativeOnly?Date.now()+nativeBatchBudgetMs:started+budget;
+  const nativeFile=await fetchPendingNativeWorkout(env,adapter,token,live.start_date,live.end_date,nativeDeadline,options.nativeDownload);
   const nativeFiles=await nativeSyncState(env,live.start_date,live.end_date);
   const latest=await d.prepare('SELECT complete,end_date FROM sync_jobs WHERE id=1').first<{complete:number;end_date:string}>();const hist=await d.prepare('SELECT complete FROM sync_history WHERE id=1').first<{complete:number}>();
   return {status:latest?.complete&&hist?.complete&&!nativeFiles.pending?'complete':'partial',plan,pages,recordsProcessed:processed,failedPages:failures,quarantinedRecords:quarantined,data_quality:quarantined?'partial_source_records_quarantined':'no_new_quarantined_records',startDate:job.start_date,endDate:job.end_date,liveThrough:latest?.end_date,liveComplete:!!latest?.complete,historyComplete:!!hist?.complete,native_file_batch:nativeFile,native_files:nativeFiles,nextMetric:job.complete?null:keys[job.metric_index],nextDate:job.complete?null:job.current_date,todayIsPartial:true};

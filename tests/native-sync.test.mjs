@@ -154,3 +154,36 @@ test('ordinary sync resumes a legacy local timeout just once while preserving al
  assert.equal(f.counts.lookup,1);
  assert.equal(f.counts.downloads,1);
 });
+
+test('a long-paused live run discovers a second same-day workout and paginates without rewinding its metric cursor',async()=>{
+ await job();
+ const noon={...sport(),key:'walking'},evening=sport(1);
+ const first=fixture([noon],'ok',[noon]);
+ await runPersistentSync(env(),first.transport,now,{liveOnly:true,maxPages:1,nativeDownload:first.download});
+ const old=now-6*3600000;
+ await db.prepare('UPDATE sync_jobs SET run_started_at=?,current_date=start_date,metric_index=7,cursor=?').bind(old,'other-metric-cursor').run();
+ await db.prepare("UPDATE sync_logs SET at=? WHERE metric='sport'").bind(old).run();
+ const checkpoint=()=>db.prepare('SELECT run_id,metric_index,"current_date",cursor FROM sync_jobs').first();
+ const before=await checkpoint(),history=await db.prepare('SELECT * FROM sync_history').first();
+ let sportPages=0;
+ const next=fixture([evening]);
+ const transport=async(url,init)=>{
+  if(new URL(url).pathname.endsWith('/get_sport_records_by_time')){
+   sportPages++;
+   return Response.json({code:0,result:sportPages===1?{sport_records:[noon],has_more:true,next_key:'next-sport'}:{sport_records:[evening],has_more:false}});
+  }
+  return next.transport(url,init);
+ };
+ const run=()=>runPersistentSync(env(),transport,now,{liveOnly:true,maxPages:1,budgetMs:18000,nativeDownload:next.download});
+ assert.equal((await run()).sport_recheck,true);
+ assert.equal((await db.prepare('SELECT cursor FROM live_sport_recheck').first()).cursor,'next-sport');
+ assert.equal((await run()).native_files.pending,1);
+ assert.deepEqual(await checkpoint(),before);
+ assert.equal((await run()).native_files.stored,2);
+ assert.equal(next.counts.downloads,1);
+ assert.equal(sportPages,2);
+ assert.deepEqual(await checkpoint(),before);
+ assert.deepEqual(await db.prepare('SELECT * FROM sync_history').first(),history);
+ assert.equal((await run()).sport_recheck,false);
+ assert.equal(sportPages,2);
+});

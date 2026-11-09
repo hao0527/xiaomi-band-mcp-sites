@@ -31,6 +31,26 @@ export const safeError=(e:unknown)=>e instanceof CollectorError&&safeErrors.has(
 function cleaned(key:MetricKey,r:RawRecord){const p=value(r);if(key==='steps'&&(!Number.isSafeInteger(p.steps)||Number(p.steps)<0))throw 0;if(key==='calories'&&typeof p.calories!=='number')throw 0;if((key==='heart_rate'||key==='resting_heart_rate')&&(!(typeof p.bpm==='number')||p.bpm<=0||p.bpm>300))throw 0;if(key==='sleep'&&!(p.bedtime||p.device_bedtime||p.bed_timestamp)&&!p.duration)throw 0;return parseRecord(key,r).data;}
 async function saveRecords(d:Database,key:MetricKey,records:RawRecord[],now:number){const statements:Statement[]=[];for(const offset of Array.from({length:Math.ceil(records.length/50)},(_,i)=>i*50)){const prepared=await Promise.all(records.slice(offset,offset+50).map(async r=>{const json=JSON.stringify(stripCredentials(r));const [sid,h]=await Promise.all([hash(r.sid??'unknown'),hash(json)]);return {r,json,sid,h,id:await hash(JSON.stringify([key,sid,r.key??key,r.time]))};}));for(const {r,json,sid,h,id} of prepared){let clean:string|null=null;try{clean=JSON.stringify(cleaned(key,r));}catch{}const date=dateCN(r.time);statements.push(d.prepare('INSERT INTO raw_versions(record_id,payload_hash,raw_json,synced_at) VALUES(?,?,?,?) ON CONFLICT(record_id,payload_hash) DO NOTHING').bind(id,h,json,now));statements.push(d.prepare(`INSERT INTO raw_records(record_id,metric,recorded_at,date_cn,source_hash,raw_json,clean_json,parse_status,synced_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET raw_json=excluded.raw_json,clean_json=excluded.clean_json,parse_status=excluded.parse_status,synced_at=excluded.synced_at`).bind(id,key,r.time,date,sid,json,clean,clean?'parsed':'schema_unverified',now));}}for(let i=0;i<statements.length;i+=50)await d.batch(statements.slice(i,i+50));}
 async function summarize(d:Database,date:string,now:number){const r=await buildDaily({DB:d},date),s=r.summary;await d.prepare(`INSERT INTO daily_summary(date_cn,steps,steps_sample_sum,steps_record_count,step_semantics,resting_hr,sleep_minutes,active_kcal,exercise_minutes,synced_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(date_cn) DO UPDATE SET steps=excluded.steps,steps_sample_sum=excluded.steps_sample_sum,steps_record_count=excluded.steps_record_count,step_semantics=excluded.step_semantics,resting_hr=excluded.resting_hr,sleep_minutes=excluded.sleep_minutes,active_kcal=excluded.active_kcal,exercise_minutes=excluded.exercise_minutes,synced_at=excluded.synced_at`).bind(date,s.steps,s.steps_sample_sum,s.steps_record_count,s.step_semantics,s.resting_hr,s.sleep_minutes,s.active_kcal,s.exercise_minutes,s.synced_at??now).run();}
+// A live run can remain at yesterday's metrics for hours between calls. Recheck
+// today's workout list on a separate cursor while keeping that run's place.
+const sportIndex = keys.indexOf('sport');
+const sportRecheckAfterMs = 30 * 60 * 1000;
+type PageCheckpoint = Pick<Job,'current_date'|'metric_index'|'cursor'|'seen_json'|'complete'>;
+async function staleSportCheckpoint(d:Database,live:Job,now:number,lease:string){
+ const today=live.end_date;
+ if(live.complete || (live.current_date===today && live.metric_index<=sportIndex) ||
+    now-(live.run_started_at??now)<sportRecheckAfterMs)return null;
+ const active=await d.prepare('SELECT * FROM live_sport_recheck WHERE id=1 AND run_id=? AND current_date=? AND complete=0')
+  .bind(live.run_id,today).first<PageCheckpoint>();
+ if(active)return active;
+ const last=await d.prepare("SELECT MAX(at) AS at FROM sync_logs WHERE metric='sport' AND date_cn=? AND status='page_committed'").bind(today).first<{at:number|null}>();
+ if(now-(last?.at??live.run_started_at??now)<sportRecheckAfterMs)return null;
+ const claim=await d.prepare(`INSERT OR REPLACE INTO live_sport_recheck(id,run_id,current_date,metric_index,updated_at)
+ SELECT 1,?,?,?,? WHERE EXISTS(SELECT 1 FROM sync_jobs WHERE id=1 AND lease_token=? AND lease_until>?)`)
+  .bind(live.run_id,today,sportIndex,now,lease,Date.now()).run();
+ if(!claim.meta.changes)throw new CollectorError('SYNC_LEASE_LOST');
+ return {current_date:today,metric_index:sportIndex,cursor:null,seen_json:'[]',complete:0};
+}
 export interface SyncOptions {liveOnly?:boolean;refreshAfterMs?:number;maxPages?:number;budgetMs?:number;nativeDownload?:Fetcher;}
 export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nativeFetcher(true),now=Date.now(),options:SyncOptions={}){
  if(env.PERSIST_SYNC_ENABLED!=='true')throw new CollectorError('PERSIST_SYNC_DISABLED');
@@ -49,18 +69,23 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   if(options.liveOnly&&live.complete&&!pendingNative)return {status:'already_current',liveThrough:live.end_date,liveComplete:true};
   if(options.liveOnly&&live.run_error_code)throw new CollectorError(live.run_error_code);
   if(!live.run_id){await d.prepare('UPDATE sync_jobs SET run_id=?,run_started_at=? WHERE id=1 AND run_id IS NULL AND lease_token=?').bind(crypto.randomUUID(),Date.now(),token).run();live=(await d.prepare('SELECT * FROM sync_jobs WHERE id=1').first<Job>())!;}
-  const plan=options.liveOnly||!live.complete?'live':'history',table=plan==='live'?'sync_jobs':'sync_history';let job=plan==='live'?live:(await d.prepare('SELECT * FROM sync_history WHERE id=1').first<Job>())!;
+  const plan=options.liveOnly||!live.complete?'live':'history';
+  const primary=plan==='live'?live:(await d.prepare('SELECT * FROM sync_history WHERE id=1').first<Job>())!;
+  const sportRecheck=plan==='live'&&!pendingNative?await staleSportCheckpoint(d,live,now,token):null;
+  const job=sportRecheck??primary;
+  const table=sportRecheck?'live_sport_recheck':plan==='live'?'sync_jobs':'sync_history';
+  const advancePage=()=>{if(sportRecheck)job.complete=1;else advance(primary);};
   if(job.complete&&!pendingNative)return {status:'already_current',liveThrough:live.end_date,historyComplete:plan==='history'};
   const adapter=new MiFitnessAdapter(transport,undefined,undefined,{totalWaitMs:1500,maxWaitMs:1000});await adapter.login(env.MI_USER_ID,env.MI_PASS_TOKEN);
   const started=Date.now(),budget=options.budgetMs??45000;
   // A short MCP batch gives pending files their own turn before more metric pages.
   const nativeOnly=pendingNative>0&&(!!job.complete||(options.liveOnly&&budget<nativeStartBudgetMs));
-  if(!nativeOnly&&!job.complete)await fetchActivityDetails(env,adapter,...(options.liveOnly?[live.start_date,live.end_date] as [string,string]:[] as []));
+  if(!nativeOnly&&!sportRecheck&&!job.complete)await fetchActivityDetails(env,adapter,...(options.liveOnly?[live.start_date,live.end_date] as [string,string]:[] as []));
   while(!nativeOnly&&pages<(options.maxPages??12)&&!job.complete&&Date.now()-started<budget){const key=keys[job.metric_index];if(!key)throw new CollectorError('SYNC_STATE_INVALID');let page;
-   try{failureMetric=key;failureDate=job.current_date;page=await adapter.page(key,job.current_date,job.current_date,job.cursor);}catch(e){const code=safeError(e);await log(d,'failed',key,job.current_date,0,code);await capability(d,key,'error',0,code);if(['AUTH_EXPIRED','INTERACTIVE_AUTH_REQUIRED','UPSTREAM_HTTP_ERROR','UPSTREAM_RATE_LIMITED','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','UPSTREAM_RETRY_DEFERRED','NETWORK_FAILURE','UPSTREAM_RETRY_EXHAUSTED','PAGE_RECORD_LIMIT'].includes(code))throw e;failures++;advance(job);await checkpoint(d,job,token,table);pages++;continue;}
+   try{failureMetric=key;failureDate=job.current_date;page=await adapter.page(key,job.current_date,job.current_date,job.cursor);}catch(e){const code=safeError(e);await log(d,'failed',key,job.current_date,0,code);await capability(d,key,'error',0,code);if(sportRecheck||['AUTH_EXPIRED','INTERACTIVE_AUTH_REQUIRED','UPSTREAM_HTTP_ERROR','UPSTREAM_RATE_LIMITED','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','UPSTREAM_RETRY_DEFERRED','NETWORK_FAILURE','UPSTREAM_RETRY_EXHAUSTED','PAGE_RECORD_LIMIT'].includes(code))throw e;failures++;advancePage();await checkpoint(d,job,token,table);pages++;continue;}
    const seen=JSON.parse(job.seen_json) as string[];if(page.hasMore&&(!page.nextKey||page.nextKey===job.cursor||seen.includes(page.nextKey)||seen.length>=100))throw new CollectorError('CURSOR_LOOP');
    await saveRecords(d,key,page.records,Date.now());if(page.rejected?.length)await saveRejectedRecords(d,key,job.current_date,job.current_date,page.rejected,Date.now());touched.add(job.current_date);processed+=page.records.length;pages++;await log(d,'page_committed',key,job.current_date,page.records.length);if(page.rejected?.length){quarantined+=page.rejected.length;await log(d,'page_quarantined',key,job.current_date,page.rejected.length,'SOURCE_RECORDS_QUARANTINED');}await capability(d,key,page.records.length?'data_returned':'no_records_in_range',page.records.length,null);
-   if(page.hasMore){job.cursor=page.nextKey;job.seen_json=JSON.stringify([...seen,page.nextKey]);}else advance(job);await checkpoint(d,job,token,table);
+   if(page.hasMore){job.cursor=page.nextKey;job.seen_json=JSON.stringify([...seen,page.nextKey]);}else advancePage();await checkpoint(d,job,token,table);
   }
   failureMetric=null;failureDate=null;
   for(const date of touched)await summarize(d,date,Date.now());
@@ -68,12 +93,13 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   const nativeFile=await fetchPendingNativeWorkout(env,adapter,token,live.start_date,live.end_date,nativeDeadline,options.nativeDownload);
   const nativeFiles=await nativeSyncState(env,live.start_date,live.end_date);
   const latest=await d.prepare('SELECT complete,end_date FROM sync_jobs WHERE id=1').first<{complete:number;end_date:string}>();const hist=await d.prepare('SELECT complete FROM sync_history WHERE id=1').first<{complete:number}>();
-  return {status:latest?.complete&&hist?.complete&&!nativeFiles.pending?'complete':'partial',plan,pages,recordsProcessed:processed,failedPages:failures,quarantinedRecords:quarantined,data_quality:quarantined?'partial_source_records_quarantined':'no_new_quarantined_records',startDate:job.start_date,endDate:job.end_date,liveThrough:latest?.end_date,liveComplete:!!latest?.complete,historyComplete:!!hist?.complete,native_file_batch:nativeFile,native_files:nativeFiles,nextMetric:job.complete?null:keys[job.metric_index],nextDate:job.complete?null:job.current_date,todayIsPartial:true};
+  const next=sportRecheck&&!sportRecheck.complete?sportRecheck:primary;
+  return {status:latest?.complete&&hist?.complete&&!nativeFiles.pending?'complete':'partial',plan,pages,recordsProcessed:processed,failedPages:failures,quarantinedRecords:quarantined,data_quality:quarantined?'partial_source_records_quarantined':'no_new_quarantined_records',sport_recheck:!!sportRecheck,startDate:primary.start_date,endDate:primary.end_date,liveThrough:latest?.end_date,liveComplete:!!latest?.complete,historyComplete:!!hist?.complete,native_file_batch:nativeFile,native_files:nativeFiles,nextMetric:next.complete?null:keys[next.metric_index],nextDate:next.complete?null:next.current_date,todayIsPartial:true};
  }catch(e){const code=syncErrorCode(e),at=Date.now();await log(d,'failed',null,null,0,code);if(options.liveOnly)await d.prepare('UPDATE sync_jobs SET run_error_code=?,updated_at=? WHERE id=1 AND lease_token=?').bind(code,at,token).run();try{await saveSyncFailure(d,live?.run_id??null,e,failureMetric,failureDate,at);}catch{await log(d,'diagnostic_unavailable',null,null,0,'SYNC_DIAGNOSTIC_SAVE_FAILED');}throw e;}finally{await d.prepare('UPDATE sync_jobs SET lease_token=NULL,lease_until=0 WHERE id=1 AND lease_token=?').bind(token).run();}
 }
 function advance(j:Job){j.cursor=null;j.seen_json='[]';j.metric_index++;if(j.metric_index>=keys.length){j.metric_index=0;if(j.current_date>j.start_date)j.current_date=addDays(j.current_date,-1);else j.complete=1;}}
 async function capability(d:Database,key:string,status:string,count:number,error:string|null){await d.prepare('INSERT INTO metric_capabilities(metric,last_checked,status,last_count,error_code) VALUES(?,?,?,?,?) ON CONFLICT(metric) DO UPDATE SET last_checked=excluded.last_checked,status=excluded.status,last_count=excluded.last_count,error_code=excluded.error_code').bind(key,Date.now(),status,count,error).run();}
-async function checkpoint(d:Database,j:Job,token:string,table:'sync_jobs'|'sync_history'='sync_jobs'){
+async function checkpoint(d:Database,j:PageCheckpoint,token:string,table:'sync_jobs'|'sync_history'|'live_sport_recheck'='sync_jobs'){
  const r=await d.prepare(`UPDATE ${table} SET metric_index=?,current_date=?,cursor=?,seen_json=?,complete=?,updated_at=? WHERE id=1 AND EXISTS(SELECT 1 FROM sync_jobs WHERE id=1 AND lease_token=? AND lease_until>?)`).bind(j.metric_index,j.current_date,j.cursor,j.seen_json,j.complete,Date.now(),token,Date.now()).run();if(!r.meta.changes)throw new CollectorError('SYNC_LEASE_LOST');
  await d.prepare('UPDATE sync_jobs SET lease_until=? WHERE id=1 AND lease_token=?').bind(Date.now()+180000,token).run();
 }

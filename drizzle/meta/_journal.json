@@ -64,6 +64,13 @@
       "when": 1793886986590,
       "tag": "0008_sync_failure_details",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794229800000,
+      "tag": "0009_live_sport_recheck",
+      "breakpoints": true
     }
   ]
 }

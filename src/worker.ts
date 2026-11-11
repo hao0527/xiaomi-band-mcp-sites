@@ -36,7 +36,7 @@ export default {async fetch(request:Request,env:PersistentEnv):Promise<Response>
     if(request.headers.get('X-Site-Sync-Intent')!=='refresh')return json({error:'SYNC_INTENT_REQUIRED'},403);
     if(request.headers.get('Origin')&&request.headers.get('Origin')!==url.origin)return json({error:'CROSS_ORIGIN_DENIED'},403);
     if(url.search||await request.text())return json({error:'NO_SYNC_PARAMETERS'},400);
-    try{return json(await runPersistentSync(env));}catch(e){const code=e instanceof CollectorError&&['PERSIST_SYNC_DISABLED','DATABASE_NOT_READY','SECRETS_NOT_CONFIGURED','SYNC_BUSY','HOSTING_COST_REVIEW_REQUIRED'].includes(e.code)?e.code:safeError(e);return json({error:code},502);}
+    try{return json(await runPersistentSync(env));}catch(e){const code=e instanceof CollectorError&&['PERSIST_SYNC_DISABLED','DATABASE_NOT_READY','SECRETS_NOT_CONFIGURED','SYNC_BUSY','HOSTING_COST_REVIEW_REQUIRED'].includes(e.code)?e.code:safeError(e);const progress=await getSyncProgress(env).catch(()=>null);return json({error:code,...(progress?.status==='failed'&&progress.error_code===code?progress:{})},502);}
   }
   if(request.method==='GET'&&url.pathname==='/api/sync-status'&&request.headers.get('X-Site-Sync-Intent')==='refresh'){try{return json(await syncStatus(env));}catch{return json({error:'DATABASE_NOT_READY'},503);}}
   if(!visitor&&!service&&!privateJob)return json({error:'SIGN_IN_REQUIRED'},401);

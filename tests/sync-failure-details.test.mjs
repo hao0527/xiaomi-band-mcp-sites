@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare} from 'miniflare';
-import {MiFitnessAdapter,triggerSync,getSyncProgress,toolCall,networkFailure,safeRequestFailure} from '../worker/index.js';
+import worker,{MiFitnessAdapter,runPersistentSync,triggerSync,getSyncProgress,toolCall,networkFailure,safeRequestFailure} from '../worker/index.js';
 
 const now=Date.now(),date=new Date(now).toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}),at=Date.parse(date+'T12:00:00+08:00')/1000;
 let mf,db;
@@ -65,4 +65,51 @@ test('additive diagnostic migration is repeatable and preserves the preceding ta
   await d.prepare("INSERT INTO sync_jobs(id,start_date,end_date,metric_index,current_date,cursor,updated_at,run_error_code) VALUES(1,?,?,0,?,'synthetic-cursor',1,'NETWORK_FAILURE')").bind(date,date,date).run();const before=await d.prepare('SELECT * FROM sync_jobs').first();
   const sql=await readFile(new URL('../drizzle/0008_sync_failure_details.sql',import.meta.url),'utf8');for(let i=0;i<2;i++)for(const q of sql.replaceAll('--> statement-breakpoint','').split(';').map(x=>x.trim()).filter(Boolean))await d.prepare(q).run();assert.deepEqual(await d.prepare('SELECT * FROM sync_jobs').first(),before);assert.equal((await d.prepare('SELECT COUNT(*) AS n FROM sync_failure_details').first()).n,0);
  }finally{await old.dispose();}
+});
+
+
+test('web sync timeout latches the same failure, blocks both ordinary entry points, and recovers the original cursor explicitly',async t=>{
+ const original=AbortSignal.timeout,controller=new AbortController();let fail=true,logins=0,health=0;
+ t.mock.method(AbortSignal,'timeout',ms=>fail?controller.signal:original.call(AbortSignal,ms));
+ const transport=async(url)=>{
+  const u=new URL(url);if(u.hostname==='account.xiaomi.com'){logins++;return new Response('&&&START&&&'+JSON.stringify({code:0,userId:'synthetic',passToken:'synthetic',ssecurity:btoa('0123456789012345'),location:'https://sts-hlth.io.mi.com/healthapp/sts'}));}
+  if(u.hostname==='sts-hlth.io.mi.com')return new Response(null,{headers:{'Set-Cookie':'serviceToken=synthetic; Path=/; Secure'}});
+  health++;if(fail){controller.abort(new DOMException(secret,'TimeoutError'));throw Error(secret);}
+  return Response.json({code:0,result:{data_list:[],sport_records:[],has_more:false}});
+ };
+ // Exercise /api/sync's exact default (non-liveOnly) collection path.
+ await assert.rejects(runPersistentSync(env(),transport,now),e=>e.code==='NETWORK_FAILURE');
+ const bad=await getSyncProgress(env());assert.equal(bad.status,'failed');assert.equal(bad.error_code,'NETWORK_FAILURE');assert.equal(bad.last_request_failure.is_current_failure,true);assert.equal(bad.last_request_failure.details.kind,'timeout');assert.equal(bad.failure_recovery.retry_failed,true);assert.equal(bad.failure_recovery.sync_id,bad.sync_id);assert.equal(logins,1);assert.equal(health,1);
+ const checkpoint=await db.prepare('SELECT run_id,metric_index,"current_date",cursor,seen_json FROM sync_jobs').first(),history=await db.prepare('SELECT * FROM sync_history').first(),diagnostic=await db.prepare('SELECT * FROM sync_failure_details').first();
+ // The actual HTTP handler reports the same latch without a fresh login.
+ const response=await worker.fetch(new Request('https://local.invalid/api/sync',{method:'POST',headers:{'X-Site-Sync-Intent':'refresh','oai-authenticated-user-id':'synthetic'}}),env());
+ assert.equal(response.status,502);const body=await response.json();assert.equal(body.status,'failed');assert.equal(body.error,'NETWORK_FAILURE');assert.equal(body.sync_id,bad.sync_id);assert.equal(body.last_request_failure.is_current_failure,true);assert.deepEqual(body.failure_recovery,bad.failure_recovery);
+ await triggerSync(env(),bad.sync_id,transport,now);assert.equal(logins,1);assert.equal(health,1);assert.deepEqual(await db.prepare('SELECT run_id,metric_index,"current_date",cursor,seen_json FROM sync_jobs').first(),checkpoint);assert.deepEqual(await db.prepare('SELECT * FROM sync_failure_details').first(),diagnostic);
+ fail=false;let good=await triggerSync(env(),bad.sync_id,transport,now,true);assert.equal(good.status,'partial');assert.equal(good.sync_id,bad.sync_id);assert.equal(good.last_request_failure.is_current_failure,false);assert.equal(good.error_code,null);
+ for(let i=0;!good.complete&&i<8;i++)good=await triggerSync(env(),bad.sync_id,transport,now);
+ assert.equal(good.status,'completed');assert.equal(good.progress.completed_metric_days,42);assert.equal(good.failed_metrics.length,0);assert.deepEqual(await db.prepare('SELECT * FROM sync_history').first(),history);assert.deepEqual(await db.prepare('SELECT * FROM sync_failure_details').first(),diagnostic);
+});
+
+test('a repeated failure after explicit recovery stops again and requires another explicit decision',async()=>{
+ let calls=0;const reject=async()=>{calls++;return new Response('&&&START&&&'+JSON.stringify({code:70016}));};
+ await assert.rejects(runPersistentSync(env(),reject,now),e=>e.code==='LOGIN_REJECTED');
+ const first=await getSyncProgress(env());assert.equal(first.status,'failed');assert.equal(calls,1);
+ const retried=await triggerSync(env(),first.sync_id,reject,now,true);assert.equal(retried.status,'failed');assert.equal(retried.sync_id,first.sync_id);assert.equal(retried.error_code,'LOGIN_REJECTED');assert.equal(calls,2);
+ await triggerSync(env(),first.sync_id,reject,now);await assert.rejects(runPersistentSync(env(),reject,now),e=>e.code==='LOGIN_REJECTED');assert.equal(calls,2);
+});
+
+test('a historical backfill failure leaves the completed live task and its diagnostic state intact',async()=>{
+ const id='00000000-0000-4000-8000-000000000001';
+ await db.prepare('INSERT INTO sync_jobs(id,start_date,end_date,metric_index,"current_date",complete,updated_at,run_id,run_started_at) VALUES(1,?,?,0,?,1,?,?,?)').bind(date,date,date,now,id,now).run();
+ const historyDate=new Date(now-2*86400000).toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
+ await db.prepare('INSERT INTO sync_history(id,start_date,end_date,metric_index,"current_date",cursor,updated_at) VALUES(1,?,?,0,?,?,?)').bind(historyDate,historyDate,historyDate,'history-cursor',now).run();
+ const before=await db.prepare('SELECT * FROM sync_jobs').first(),history=await db.prepare('SELECT * FROM sync_history').first();
+ const transport=async(url)=>{
+  const u=new URL(url);if(u.hostname==='account.xiaomi.com')return new Response('&&&START&&&'+JSON.stringify({code:0,userId:'synthetic',passToken:'synthetic',ssecurity:btoa('0123456789012345'),location:'https://sts-hlth.io.mi.com/healthapp/sts'}));
+  if(u.hostname==='sts-hlth.io.mi.com')return new Response(null,{headers:{'Set-Cookie':'serviceToken=synthetic; Path=/; Secure'}});
+  throw Error(secret);
+ };
+ await assert.rejects(runPersistentSync(env(),transport,now),e=>e.code==='NETWORK_FAILURE');
+ const after=await db.prepare('SELECT * FROM sync_jobs').first();assert.equal(after.run_error_code,before.run_error_code);assert.equal(after.updated_at,before.updated_at);assert.equal(after.run_id,id);assert.equal(after.complete,1);assert.deepEqual(await db.prepare('SELECT * FROM sync_history').first(),history);
+ const progress=await getSyncProgress(env(),id);assert.equal(progress.status,'completed');assert.equal(progress.last_request_failure,null);assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM sync_failure_details').first()).n,0);
 });

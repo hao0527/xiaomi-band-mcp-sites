@@ -63,13 +63,16 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
  }
  const oldest=addDays(today,-364),histEnd=addDays(today,-2);if(!options.liveOnly)await d.prepare('INSERT OR IGNORE INTO sync_history(id,start_date,end_date,metric_index,current_date,updated_at) VALUES(1,?,?,0,?,?)').bind(oldest,histEnd,histEnd,now).run();
  const acquired=await d.prepare('UPDATE sync_jobs SET lease_token=?,lease_until=? WHERE id=1 AND lease_until<=?').bind(token,Date.now()+180000,Date.now()).run();if(!acquired.meta.changes)throw new CollectorError('SYNC_BUSY');
- let failureMetric:string|null=null,failureDate:string|null=null;let processed=0,pages=0,failures=0,quarantined=0;const touched=new Set<string>();try{
-  if(!env.MI_USER_ID||!env.MI_PASS_TOKEN)throw new CollectorError('SECRETS_NOT_CONFIGURED');
+ let failureMetric:string|null=null,failureDate:string|null=null,failurePlan:'live'|'history'|null=null;let processed=0,pages=0,failures=0,quarantined=0;const touched=new Set<string>();try{
   live=(await d.prepare('SELECT * FROM sync_jobs WHERE id=1').first<Job>())!;
+  // Both entry points stop on the same latch. Only triggerSync's explicit
+  // recovery may clear it; merely reading or clicking ordinary sync must not.
+  if(live.run_error_code)throw new CollectorError(live.run_error_code);
+  failurePlan=options.liveOnly||!live.complete?'live':'history';
+  if(!env.MI_USER_ID||!env.MI_PASS_TOKEN)throw new CollectorError('SECRETS_NOT_CONFIGURED');
   if(options.liveOnly&&live.complete&&!pendingNative)return {status:'already_current',liveThrough:live.end_date,liveComplete:true};
-  if(options.liveOnly&&live.run_error_code)throw new CollectorError(live.run_error_code);
   if(!live.run_id){await d.prepare('UPDATE sync_jobs SET run_id=?,run_started_at=? WHERE id=1 AND run_id IS NULL AND lease_token=?').bind(crypto.randomUUID(),Date.now(),token).run();live=(await d.prepare('SELECT * FROM sync_jobs WHERE id=1').first<Job>())!;}
-  const plan=options.liveOnly||!live.complete?'live':'history';
+  const plan=failurePlan;
   const primary=plan==='live'?live:(await d.prepare('SELECT * FROM sync_history WHERE id=1').first<Job>())!;
   const sportRecheck=plan==='live'&&!pendingNative?await staleSportCheckpoint(d,live,now,token):null;
   const job=sportRecheck??primary;
@@ -95,7 +98,7 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   const latest=await d.prepare('SELECT complete,end_date FROM sync_jobs WHERE id=1').first<{complete:number;end_date:string}>();const hist=await d.prepare('SELECT complete FROM sync_history WHERE id=1').first<{complete:number}>();
   const next=sportRecheck&&!sportRecheck.complete?sportRecheck:primary;
   return {status:latest?.complete&&hist?.complete&&!nativeFiles.pending?'complete':'partial',plan,pages,recordsProcessed:processed,failedPages:failures,quarantinedRecords:quarantined,data_quality:quarantined?'partial_source_records_quarantined':'no_new_quarantined_records',sport_recheck:!!sportRecheck,startDate:primary.start_date,endDate:primary.end_date,liveThrough:latest?.end_date,liveComplete:!!latest?.complete,historyComplete:!!hist?.complete,native_file_batch:nativeFile,native_files:nativeFiles,nextMetric:next.complete?null:keys[next.metric_index],nextDate:next.complete?null:next.current_date,todayIsPartial:true};
- }catch(e){const code=syncErrorCode(e),at=Date.now();await log(d,'failed',null,null,0,code);if(options.liveOnly)await d.prepare('UPDATE sync_jobs SET run_error_code=?,updated_at=? WHERE id=1 AND lease_token=?').bind(code,at,token).run();try{await saveSyncFailure(d,live?.run_id??null,e,failureMetric,failureDate,at);}catch{await log(d,'diagnostic_unavailable',null,null,0,'SYNC_DIAGNOSTIC_SAVE_FAILED');}throw e;}finally{await d.prepare('UPDATE sync_jobs SET lease_token=NULL,lease_until=0 WHERE id=1 AND lease_token=?').bind(token).run();}
+ }catch(e){const code=syncErrorCode(e),at=Date.now();await log(d,'failed',null,null,0,code);if(failurePlan==='live'){await d.prepare('UPDATE sync_jobs SET run_error_code=?,updated_at=? WHERE id=1 AND lease_token=?').bind(code,at,token).run();try{await saveSyncFailure(d,live?.run_id??null,e,failureMetric,failureDate,at);}catch{await log(d,'diagnostic_unavailable',null,null,0,'SYNC_DIAGNOSTIC_SAVE_FAILED');}}throw e;}finally{await d.prepare('UPDATE sync_jobs SET lease_token=NULL,lease_until=0 WHERE id=1 AND lease_token=?').bind(token).run();}
 }
 function advance(j:Job){j.cursor=null;j.seen_json='[]';j.metric_index++;if(j.metric_index>=keys.length){j.metric_index=0;if(j.current_date>j.start_date)j.current_date=addDays(j.current_date,-1);else j.complete=1;}}
 async function capability(d:Database,key:string,status:string,count:number,error:string|null){await d.prepare('INSERT INTO metric_capabilities(metric,last_checked,status,last_count,error_code) VALUES(?,?,?,?,?) ON CONFLICT(metric) DO UPDATE SET last_checked=excluded.last_checked,status=excluded.status,last_count=excluded.last_count,error_code=excluded.error_code').bind(key,Date.now(),status,count,error).run();}

@@ -3,6 +3,7 @@ import type {Database} from './persistence.js';
 
 export async function saveSyncFailure(d:Database,runId:string|null,error:unknown,metric:string|null,date:string|null,at:number){
  if(!(error instanceof CollectorError))return;const detail=safeRequestFailure(error.request_failure);if(!detail)return;
+ if(detail.request_id)try{console.error(JSON.stringify({event:'xiaomi_sync_request_failed',request_id:detail.request_id,sync_id:runId,metric,date,error_code:error.code,observed_at:at}));}catch{/* Logging cannot replace the persisted diagnostic. */}
  await d.prepare('INSERT INTO sync_failure_details(run_id,metric,date_cn,error_code,details_json,observed_at) VALUES(?,?,?,?,?,?)').bind(runId,metric,date,error.code,JSON.stringify(detail),at).run();
  await d.prepare('DELETE FROM sync_failure_details WHERE id NOT IN (SELECT id FROM sync_failure_details ORDER BY id DESC LIMIT 1000)').run();
 }

@@ -18,3 +18,27 @@ The diagnostic milestone preserves request windows, step aggregation, metric ord
 The default web `/api/sync` path and the MCP live-only path now latch live-run failures identically. The failed run keeps its ID, date/metric cursor and saved diagnostic; `get_sync_progress` reports `failed`, the current error and explicit recovery parameters. The web error response includes that same progress when it belongs to the failed live run. Repeating ordinary sync performs no new login and does not replace the original diagnostic timestamp.
 
 The dashboard labels its button “恢复失败同步” for a failed run. Clicking it calls the existing `/api/mcp-trigger-sync` endpoint once with the same ID and `retry_failed:true`. A successful partial batch can be continued normally; a second failure stops again. History backfill errors stay in sync logs and do not overwrite a completed live task's status or attach a history diagnostic to its live run ID. No timeout, automatic retry, credential storage, database schema or health-data behavior changes.
+
+## Request transfer diagnostics v2
+
+New data and native-reference requests emit fixed, structured `xiaomi_cloud_request` events for `started`, `headers_received` and one terminal transfer phase (`body_received`, `network_failure`, `http_error` or `body_error`). Failure phases use error-level Worker logs even when the outer MCP request returns HTTP 200. Successful transfers use info-level logs for comparison; `body_received` means the response stream was received, not that decryption, the business result or the data schema succeeded.
+
+Each request has a locally generated UUID `request_id`, reused by its events and durable failure details. A `xiaomi_sync_request_failed` error event links the diagnostic request ID with the live `sync_id`, metric, date and failure timestamp. Worker logs also retain their own invocation IDs. Log retention follows the hosting platform; failed live-request evidence continues to use the existing D1 diagnostic table, retaining its most recent 1000 entries independently of Worker log retention. No new table or migration is needed.
+
+| Field | Meaning |
+| --- | --- |
+| `diagnostic_version` | `2` on newly instrumented requests; absent on legacy records. |
+| `headers_elapsed_ms` | Time from request start until response headers became available; null if none were observed. |
+| `body_elapsed_ms` | Time since headers became available; null before headers. |
+| `first_byte_elapsed_ms` | Time since request start when the reader first observed a nonempty chunk; null if none. |
+| `last_chunk_elapsed_ms` | Time since request start of the last observed nonempty chunk; null if none. |
+| `body_idle_ms` | Time since the last chunk, or since headers when no chunk arrived; null before headers. |
+| `body_bytes_received` | Bytes observed in the Fetch response stream, including partial data before failure. These are not a wire-byte or Content-Length measurement. |
+| `body_chunks_received` | Nonempty reader chunks, not TCP packet counts. |
+| `body_complete` | True only after the stream ended; empty completed streams still have zero bytes and null first/last chunk times. |
+
+All timing values refer to local observations. `elapsed_ms` remains total request elapsed time, including both header and body phases. `timeout_cap_ms` retains its original configured ceiling; native-reference calls may use a shorter remaining-budget signal. Unknown legacy phase timings remain absent rather than being filled with invented zeros.
+
+Diagnostics only inspect trusted abort state, fixed operation/metric labels, HTTP status, elapsed times and byte counts. They never log credentials, signatures, cookies, raw headers, full URLs, request/response contents, cursor values or exception messages. Readers reapply the allowlist before exposing persisted details. Logging failures are swallowed so diagnostics cannot alter network results. Request windows, timeouts, retries, authentication and checkpoint semantics remain unchanged.
+
+Tests simulate pre-header timeout, a body with no first byte, a partially received body that stalls, successful multi-chunk and empty responses, native-reference failures, malformed diagnostic fields, non-disclosure sentinels and logger failure. Integration tests verify that extended evidence persists and is read unchanged through the actual Worker MCP route without performing new cloud requests.

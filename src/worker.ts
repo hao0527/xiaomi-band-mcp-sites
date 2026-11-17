@@ -128,3 +128,5 @@ export {auditCollectionWindows,readWindowAudit} from './collection-window-audit.
 export {repairActivityRaw,readActivityRawRepair} from './activity-raw-repair.js';
 
 export {networkFailure,safeRequestFailure} from './collector/http.js';
+
+export {RequestTrace} from './collector/request-diagnostics.js';

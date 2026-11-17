@@ -1,5 +1,11 @@
 export type Fetcher=(url:string,init:RequestInit)=>Promise<Response>;
-export interface RequestFailureDetails {
+export interface RequestTransferDetails {
+ diagnostic_version:2;request_id:string;
+ headers_elapsed_ms:number|null;body_elapsed_ms:number|null;
+ first_byte_elapsed_ms:number|null;last_chunk_elapsed_ms:number|null;body_idle_ms:number|null;
+ body_bytes_received:number;body_chunks_received:number;body_complete:boolean;
+}
+export interface RequestFailureDetails extends Partial<RequestTransferDetails> {
  operation:'fitness_data'|'sport_records'|'daily_aggregate'|'sport_operational'|'native_reference';
  stage:'response_headers'|'response_body';
  kind:'timeout'|'aborted'|'transport_error'|'response_read_error';
@@ -8,14 +14,18 @@ export interface RequestFailureDetails {
 export class CollectorError extends Error { constructor(public code:string,public readonly request_failure?:RequestFailureDetails){super(code);this.name='CollectorError';} }
 // Only fixed labels and bounded numbers; never inspect or save exception messages,
 // URLs, headers, signatures, cookies, cursor values or response/source contents.
-export function networkFailure(signal:AbortSignal,started:number,operation:RequestFailureDetails['operation'],stage:RequestFailureDetails['stage'],httpStatus:number|null=null,timeoutCapMs=20000){
+export function networkFailure(signal:AbortSignal,started:number,operation:RequestFailureDetails['operation'],stage:RequestFailureDetails['stage'],httpStatus:number|null=null,timeoutCapMs=20000,transfer?:RequestTransferDetails){
  const reason=signal.aborted?signal.reason:null,timeout=reason&&typeof reason==='object'&&reason.name==='TimeoutError';
- return new CollectorError('NETWORK_FAILURE',{operation,stage,kind:timeout?'timeout':signal.aborted?'aborted':stage==='response_body'?'response_read_error':'transport_error',elapsed_ms:Math.min(3600000,Math.max(0,Date.now()-started)),timeout_cap_ms:timeoutCapMs,http_status:httpStatus});
+ return new CollectorError('NETWORK_FAILURE',{operation,stage,kind:timeout?'timeout':signal.aborted?'aborted':stage==='response_body'?'response_read_error':'transport_error',elapsed_ms:Math.min(3600000,Math.max(0,Date.now()-started)),timeout_cap_ms:timeoutCapMs,http_status:httpStatus,...(transfer??{})});
 }
 export function safeRequestFailure(v:unknown):RequestFailureDetails|null{
  if(!v||typeof v!=='object')return null;const r=v as Record<string,unknown>;
  if(typeof r.operation!=='string'||!['fitness_data','sport_records','daily_aggregate','sport_operational','native_reference'].includes(r.operation)||typeof r.stage!=='string'||!['response_headers','response_body'].includes(r.stage)||typeof r.kind!=='string'||!['timeout','aborted','transport_error','response_read_error'].includes(r.kind)||!Number.isSafeInteger(r.elapsed_ms)||Number(r.elapsed_ms)<0||Number(r.elapsed_ms)>3600000||(r.timeout_cap_ms!==20000&&r.timeout_cap_ms!==30000)||r.http_status!==null&&(!Number.isInteger(r.http_status)||Number(r.http_status)<100||Number(r.http_status)>599))return null;
- return {operation:r.operation as RequestFailureDetails['operation'],stage:r.stage as RequestFailureDetails['stage'],kind:r.kind as RequestFailureDetails['kind'],elapsed_ms:Number(r.elapsed_ms),timeout_cap_ms:Number(r.timeout_cap_ms),http_status:r.http_status as number|null};
+ const legacy={operation:r.operation as RequestFailureDetails['operation'],stage:r.stage as RequestFailureDetails['stage'],kind:r.kind as RequestFailureDetails['kind'],elapsed_ms:Number(r.elapsed_ms),timeout_cap_ms:Number(r.timeout_cap_ms),http_status:r.http_status as number|null};
+ if(r.diagnostic_version===undefined)return legacy;
+ const time=(v:unknown)=>v===null||Number.isSafeInteger(v)&&Number(v)>=0&&Number(v)<=legacy.elapsed_ms;
+ if(r.diagnostic_version!==2||typeof r.request_id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.request_id)||!['headers_elapsed_ms','body_elapsed_ms','first_byte_elapsed_ms','last_chunk_elapsed_ms','body_idle_ms'].every(k=>time(r[k]))||!Number.isSafeInteger(r.body_bytes_received)||Number(r.body_bytes_received)<0||Number(r.body_bytes_received)>1073741824||!Number.isSafeInteger(r.body_chunks_received)||Number(r.body_chunks_received)<0||Number(r.body_chunks_received)>1073741824||typeof r.body_complete!=='boolean')return null;
+ return {...legacy,diagnostic_version:2,request_id:r.request_id,headers_elapsed_ms:r.headers_elapsed_ms as number|null,body_elapsed_ms:r.body_elapsed_ms as number|null,first_byte_elapsed_ms:r.first_byte_elapsed_ms as number|null,last_chunk_elapsed_ms:r.last_chunk_elapsed_ms as number|null,body_idle_ms:r.body_idle_ms as number|null,body_bytes_received:Number(r.body_bytes_received),body_chunks_received:Number(r.body_chunks_received),body_complete:r.body_complete};
 }
 const allowedHosts=new Set(['account.xiaomi.com','sts-hlth.io.mi.com','hlth.io.mi.com']);
 export function allowedURL(input:string):URL {let u:URL;try{u=new URL(input);}catch{throw new CollectorError('BLOCKED_URL');}if(u.protocol!=='https:'||!allowedHosts.has(u.hostname)||u.username||u.password||(u.port&&u.port!=='443')||u.hash)throw new CollectorError('BLOCKED_URL');return u;}
@@ -42,4 +52,4 @@ export class CookieJar {
   }
   header(url:string,now=Date.now()){const u=allowedURL(url);return this.entries.filter(c=>(c.expires===null||c.expires>now)&&(c.hostOnly?u.hostname===c.domain:u.hostname===c.domain||u.hostname.endsWith('.'+c.domain))&&(u.pathname===c.path||u.pathname.startsWith(c.path.endsWith('/')?c.path:c.path+'/'))&&(!c.secure||u.protocol==='https:')).sort((a,b)=>b.path.length-a.path.length).map(c=>c.name+'='+c.value).join('; ');}
 }
-export async function boundedText(r:Response,max=2*1024*1024){const reader=r.body?.getReader();if(!reader)return '';let size=0;const chunks:Uint8Array[]=[];while(true){const {value,done}=await reader.read();if(done)break;size+=value.byteLength;if(size>max){await reader.cancel();throw new CollectorError('RESPONSE_TOO_LARGE');}chunks.push(value);}const bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw new CollectorError('INVALID_UTF8');}}
+export async function boundedText(r:Response,max=2*1024*1024,observer?:{chunk:(size:number)=>void;complete:()=>void}){const reader=r.body?.getReader();if(!reader){observer?.complete();return '';}let size=0;const chunks:Uint8Array[]=[];while(true){const {value,done}=await reader.read();if(done){observer?.complete();break;}if(value.byteLength)observer?.chunk(value.byteLength);size+=value.byteLength;if(size>max){await reader.cancel();throw new CollectorError('RESPONSE_TOO_LARGE');}chunks.push(value);}const bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw new CollectorError('INVALID_UTF8');}}

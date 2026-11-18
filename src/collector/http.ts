@@ -1,9 +1,11 @@
 export type Fetcher=(url:string,init:RequestInit)=>Promise<Response>;
+export type StepRetryAttempt={attempt:1;headers_timeout_ms:number}|{attempt:2;retry_of_request_id:string};
 export interface RequestTransferDetails {
  diagnostic_version:2;request_id:string;
  headers_elapsed_ms:number|null;body_elapsed_ms:number|null;
  first_byte_elapsed_ms:number|null;last_chunk_elapsed_ms:number|null;body_idle_ms:number|null;
  body_bytes_received:number;body_chunks_received:number;body_complete:boolean;
+ retry?:StepRetryAttempt;
 }
 export interface RequestFailureDetails extends Partial<RequestTransferDetails> {
  operation:'fitness_data'|'sport_records'|'daily_aggregate'|'sport_operational'|'native_reference';
@@ -24,8 +26,15 @@ export function safeRequestFailure(v:unknown):RequestFailureDetails|null{
  const legacy={operation:r.operation as RequestFailureDetails['operation'],stage:r.stage as RequestFailureDetails['stage'],kind:r.kind as RequestFailureDetails['kind'],elapsed_ms:Number(r.elapsed_ms),timeout_cap_ms:Number(r.timeout_cap_ms),http_status:r.http_status as number|null};
  if(r.diagnostic_version===undefined)return legacy;
  const time=(v:unknown)=>v===null||Number.isSafeInteger(v)&&Number(v)>=0&&Number(v)<=legacy.elapsed_ms;
- if(r.diagnostic_version!==2||typeof r.request_id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.request_id)||!['headers_elapsed_ms','body_elapsed_ms','first_byte_elapsed_ms','last_chunk_elapsed_ms','body_idle_ms'].every(k=>time(r[k]))||!Number.isSafeInteger(r.body_bytes_received)||Number(r.body_bytes_received)<0||Number(r.body_bytes_received)>1073741824||!Number.isSafeInteger(r.body_chunks_received)||Number(r.body_chunks_received)<0||Number(r.body_chunks_received)>1073741824||typeof r.body_complete!=='boolean')return null;
- return {...legacy,diagnostic_version:2,request_id:r.request_id,headers_elapsed_ms:r.headers_elapsed_ms as number|null,body_elapsed_ms:r.body_elapsed_ms as number|null,first_byte_elapsed_ms:r.first_byte_elapsed_ms as number|null,last_chunk_elapsed_ms:r.last_chunk_elapsed_ms as number|null,body_idle_ms:r.body_idle_ms as number|null,body_bytes_received:Number(r.body_bytes_received),body_chunks_received:Number(r.body_chunks_received),body_complete:r.body_complete};
+ const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+ if(r.diagnostic_version!==2||!uuid(r.request_id)||!['headers_elapsed_ms','body_elapsed_ms','first_byte_elapsed_ms','last_chunk_elapsed_ms','body_idle_ms'].every(k=>time(r[k]))||!Number.isSafeInteger(r.body_bytes_received)||Number(r.body_bytes_received)<0||Number(r.body_bytes_received)>1073741824||!Number.isSafeInteger(r.body_chunks_received)||Number(r.body_chunks_received)<0||Number(r.body_chunks_received)>1073741824||typeof r.body_complete!=='boolean')return null;
+ let retry:StepRetryAttempt|undefined;
+ if(r.retry&&typeof r.retry==='object'&&legacy.operation==='fitness_data'){
+  const a=r.retry as Record<string,unknown>;
+  if(a.attempt===1&&Number.isSafeInteger(a.headers_timeout_ms)&&Number(a.headers_timeout_ms)>0&&Number(a.headers_timeout_ms)<legacy.timeout_cap_ms)retry={attempt:1,headers_timeout_ms:Number(a.headers_timeout_ms)};
+  if(a.attempt===2&&uuid(a.retry_of_request_id)&&a.retry_of_request_id!==r.request_id)retry={attempt:2,retry_of_request_id:a.retry_of_request_id};
+ }
+ return {...legacy,diagnostic_version:2,request_id:r.request_id,headers_elapsed_ms:r.headers_elapsed_ms as number|null,body_elapsed_ms:r.body_elapsed_ms as number|null,first_byte_elapsed_ms:r.first_byte_elapsed_ms as number|null,last_chunk_elapsed_ms:r.last_chunk_elapsed_ms as number|null,body_idle_ms:r.body_idle_ms as number|null,body_bytes_received:Number(r.body_bytes_received),body_chunks_received:Number(r.body_chunks_received),body_complete:r.body_complete,...(retry?{retry}:{})};
 }
 const allowedHosts=new Set(['account.xiaomi.com','sts-hlth.io.mi.com','hlth.io.mi.com']);
 export function allowedURL(input:string):URL {let u:URL;try{u=new URL(input);}catch{throw new CollectorError('BLOCKED_URL');}if(u.protocol!=='https:'||!allowedHosts.has(u.hostname)||u.username||u.password||(u.port&&u.port!=='443')||u.hash)throw new CollectorError('BLOCKED_URL');return u;}

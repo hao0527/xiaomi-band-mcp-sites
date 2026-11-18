@@ -1,5 +1,5 @@
 import {keys} from './models.js';
-import {networkFailure,type RequestFailureDetails,type RequestTransferDetails} from './http.js';
+import {networkFailure,type RequestFailureDetails,type RequestTransferDetails,type StepRetryAttempt} from './http.js';
 
 // This observer receives byte counts only. It never inspects source contents,
 // request parameters, headers, URLs or exception messages.
@@ -14,13 +14,13 @@ export class RequestTrace {
  private complete=false;
  private status:number|null=null;
  private readonly metric:string|null;
- constructor(private operation:RequestFailureDetails['operation'],private signal:AbortSignal,private cap=20000,metric:unknown=null,private clock=()=>Date.now()){
+ constructor(private operation:RequestFailureDetails['operation'],private signal:AbortSignal,private cap=20000,metric:unknown=null,private clock=()=>Date.now(),private retry?:StepRetryAttempt){
   this.started=this.clock();this.metric=typeof metric==='string'&&keys.some(k=>k===metric)?metric:null;this.emit('started');
  }
  private elapsed(at:number){return Math.min(3600000,Math.max(0,at-this.started));}
  snapshot():RequestTransferDetails{
   const at=this.clock();
-  return {diagnostic_version:2,request_id:this.id,headers_elapsed_ms:this.headersAt===null?null:this.elapsed(this.headersAt),body_elapsed_ms:this.headersAt===null?null:Math.max(0,this.elapsed(at)-this.elapsed(this.headersAt)),first_byte_elapsed_ms:this.firstAt===null?null:this.elapsed(this.firstAt),last_chunk_elapsed_ms:this.lastAt===null?null:this.elapsed(this.lastAt),body_idle_ms:this.headersAt===null?null:Math.max(0,this.elapsed(at)-this.elapsed(this.lastAt??this.headersAt)),body_bytes_received:this.bytes,body_chunks_received:this.chunks,body_complete:this.complete};
+  return {diagnostic_version:2,request_id:this.id,headers_elapsed_ms:this.headersAt===null?null:this.elapsed(this.headersAt),body_elapsed_ms:this.headersAt===null?null:Math.max(0,this.elapsed(at)-this.elapsed(this.headersAt)),first_byte_elapsed_ms:this.firstAt===null?null:this.elapsed(this.firstAt),last_chunk_elapsed_ms:this.lastAt===null?null:this.elapsed(this.lastAt),body_idle_ms:this.headersAt===null?null:Math.max(0,this.elapsed(at)-this.elapsed(this.lastAt??this.headersAt)),body_bytes_received:this.bytes,body_chunks_received:this.chunks,body_complete:this.complete,...(this.retry?{retry:this.retry}:{})};
  }
  headers(status:number){this.status=status;this.headersAt=this.clock();this.emit('headers_received');}
  readonly reader={chunk:(size:number)=>{const at=this.clock();this.firstAt??=at;this.lastAt=at;this.bytes+=size;this.chunks++;},complete:()=>{this.complete=true;}};

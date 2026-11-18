@@ -42,3 +42,11 @@ All timing values refer to local observations. `elapsed_ms` remains total reques
 Diagnostics only inspect trusted abort state, fixed operation/metric labels, HTTP status, elapsed times and byte counts. They never log credentials, signatures, cookies, raw headers, full URLs, request/response contents, cursor values or exception messages. Readers reapply the allowlist before exposing persisted details. Logging failures are swallowed so diagnostics cannot alter network results. Request windows, timeouts, retries, authentication and checkpoint semantics remain unchanged.
 
 Tests simulate pre-header timeout, a body with no first byte, a partially received body that stalls, successful multi-chunk and empty responses, native-reference failures, malformed diagnostic fields, non-disclosure sentinels and logger failure. Integration tests verify that extended evidence persists and is read unchanged through the actual Worker MCP route without performing new cloud requests.
+
+## One retry for recent step pages
+
+Recent web and MCP syncs retry a daily step page once if the first request reaches its 8-second response-header limit. The first request is canceled locally. After 500 ms, the worker signs the same date and cursor with a fresh nonce and sends it using the same session. Both transfers and the delay share one 20-second deadline. Receiving headers clears the first attempt's 8-second timer so the body can still use the remaining time.
+
+Other metrics, step aggregates, history backfill and operator verification use their existing request policies. There is no retry after receiving headers, an authentication or rate-limit response, or a transport failure that did not exhaust the first header timer. A second failure uses the existing explicit recovery path and preserves the page checkpoint. Only a successfully returned page can advance the cursor and be committed.
+
+For an eligible request, the existing transfer logs include `retry.attempt`. The first attempt includes `retry.headers_timeout_ms` and the second includes `retry.retry_of_request_id`, linking it to the initial failure. If the second transfer fails at the network layer, that link is also retained in the durable failure diagnostic. `timeout_cap_ms` remains the total configured budget and `elapsed_ms` measures the individual transfer attempt.

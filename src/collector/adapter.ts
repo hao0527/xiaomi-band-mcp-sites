@@ -1,13 +1,16 @@
 import {RequestTrace} from './request-diagnostics.js';
 import {encryptRequest,rc4,text,unb64,auxiliaryEncrypted,nonce,pythonJSON,signedNonce} from './crypto.js';
-import {CollectorError,allowedURL,boundedText,nativeFetcher,type Fetcher,type RequestFailureDetails} from './http.js';
+import {CollectorError,allowedURL,boundedText,nativeFetcher,type Fetcher,type RequestFailureDetails,type StepRetryAttempt} from './http.js';
 import {loginWithToken,type Session} from './auth.js';
 import {object,validateRaw,dateRange} from './parser.js';
 import type {MetricKey,Page,RejectedRecord,RawRecord} from './models.js';
 export const FITNESS_PATH='/app/v1/data/get_fitness_data_by_time';export const SPORT_PATH='/app/v1/data/get_sport_records_by_time';
 export const AGGREGATE_PATH='/app/v1/data/get_aggregated_fitness_data_by_time';export const SPORT_OPERATIONAL_PATH='/app/v1/operate/get_sport_operational_data';
 export const NATIVE_FILE_PATH='/healthapp/service/gen_download_url';
-export interface RetryPolicy {now?:()=>number;maxWaitMs?:number;totalWaitMs?:number;}
+export interface RetryPolicy {now?:()=>number;maxWaitMs?:number;totalWaitMs?:number;retryStepHeaders?:boolean;}
+const STEP_PAGE_TIMEOUT_MS=20000;
+const FIRST_STEP_HEADERS_TIMEOUT_MS=8000;
+const STEP_RETRY_DELAY_MS=500;
 // Never retry earlier than a valid upstream Retry-After. Excessive waits defer the task.
 export function retryAfterMs(value:string|null,now:number):number|null {
   if(value===null)return null;const v=value.trim();
@@ -34,22 +37,71 @@ export class MiFitnessAdapter {
     if(body.code!==0)throw new CollectorError('UPSTREAM_BUSINESS_ERROR');return object(body.result??{});
   }
   async request(path:typeof FITNESS_PATH|typeof SPORT_PATH|typeof AGGREGATE_PATH|typeof SPORT_OPERATIONAL_PATH,payload:Record<string,unknown>):Promise<Record<string,unknown>>{
-    if(!this.session)throw new CollectorError('AUTH_REQUIRED');allowedURL('https://hlth.io.mi.com'+path);
-    // Keep constructor arguments compatible, but never repeat an uncertain request.
-    // A later attempt requires an explicit caller decision and the same checkpoint.
-      const {form,key}=await encryptRequest(payload,path,this.session.security,this.makeNonce?.());
-      const timeoutMs=path===FITNESS_PATH&&payload.key==='heart_rate'?30000:20000,signal=AbortSignal.timeout(timeoutMs),operation:RequestFailureDetails['operation']=path===SPORT_PATH?'sport_records':path===AGGREGATE_PATH?'daily_aggregate':path===SPORT_OPERATIONAL_PATH?'sport_operational':'fitness_data';
-      const trace=new RequestTrace(operation,signal,timeoutMs,payload.key??(path===SPORT_PATH?'sport':null));
-      let r:Response;try{r=await this.transport('https://hlth.io.mi.com'+path,{method:'POST',redirect:'manual',signal,headers:{Cookie:this.session.cookies,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(form).toString()});}
-      catch(e){if(e instanceof CollectorError)throw e;throw trace.failure('response_headers');}
-      trace.headers(r.status);
-      if(r.status===401||r.status===403){trace.httpError();this.session=null;throw new CollectorError('AUTH_EXPIRED');}
-      if(r.status!==200){trace.httpError();await r.body?.cancel();throw new CollectorError(r.status===429?'UPSTREAM_RATE_LIMITED':'UPSTREAM_HTTP_ERROR');}
-      let raw:string;try{raw=await boundedText(r,undefined,trace.reader);trace.received();}catch(e){if(e instanceof CollectorError){trace.bodyError();throw e;}throw trace.failure('response_body');}let body:Record<string,unknown>;
-      try{body=object(JSON.parse(raw.startsWith('{')?raw:text(rc4(key,unb64(raw)))));}catch{throw new CollectorError('INVALID_CLOUD_RESPONSE');}
-      const code=body.code,message=String(body.message??'').toLowerCase();
-      if([401,403,-6,-10001,2].includes(Number(code))||['authentication failed','invalid credential','invalid pass token','login required','not logged in','session expired','unauthorized'].some(v=>message.includes(v))){this.session=null;throw new CollectorError('AUTH_EXPIRED');}
-      if(code!==0)throw new CollectorError('UPSTREAM_BUSINESS_ERROR');return object(body.result??{});
+    const session=this.session;
+    if(!session)throw new CollectorError('AUTH_REQUIRED');
+    const url=allowedURL('https://hlth.io.mi.com'+path).href;
+    const timeoutMs=path===FITNESS_PATH&&payload.key==='heart_rate'?30000:STEP_PAGE_TIMEOUT_MS;
+    const operation:RequestFailureDetails['operation']=path===SPORT_PATH?'sport_records':path===AGGREGATE_PATH?'daily_aggregate':path===SPORT_OPERATIONAL_PATH?'sport_operational':'fitness_data';
+    const metric=payload.key??(path===SPORT_PATH?'sport':null);
+
+    // Sign each attempt with a fresh nonce but use the same session and page query.
+    const first=await encryptRequest(payload,path,session.security,this.makeNonce?.());
+    const deadline=AbortSignal.timeout(timeoutMs);
+    const send=(request:typeof first,attempt?:StepRetryAttempt,headersDeadline?:AbortController)=>
+      this.readFitnessResponse(url,request,session,deadline,timeoutMs,operation,metric,attempt,headersDeadline);
+
+    if(!this.retryPolicy.retryStepHeaders||path!==FITNESS_PATH||metric!=='steps')return send(first);
+
+    const headersDeadline=new AbortController();
+    try{
+      return await send(first,{attempt:1,headers_timeout_ms:FIRST_STEP_HEADERS_TIMEOUT_MS},headersDeadline);
+    }catch(error){
+      const detail=error instanceof CollectorError?error.request_failure:undefined;
+      if(!headersDeadline.signal.aborted||deadline.aborted||detail?.kind!=='timeout'||detail.stage!=='response_headers'||!detail.request_id)throw error;
+      await this.sleep(STEP_RETRY_DELAY_MS);
+      if(deadline.aborted)throw error;
+      const second=await encryptRequest(payload,path,session.security,this.makeNonce?.());
+      if(deadline.aborted)throw error;
+      return send(second,{attempt:2,retry_of_request_id:detail.request_id});
+    }
+  }
+
+  private async readFitnessResponse(url:string,{form,key}:Awaited<ReturnType<typeof encryptRequest>>,session:Session,
+    deadline:AbortSignal,timeoutMs:number,operation:RequestFailureDetails['operation'],metric:unknown,
+    attempt?:StepRetryAttempt,headersDeadline?:AbortController){
+    const signal=headersDeadline?AbortSignal.any([deadline,headersDeadline.signal]):deadline;
+    const trace=new RequestTrace(operation,signal,timeoutMs,metric,undefined,attempt);
+    const headerTimer=headersDeadline&&setTimeout(()=>headersDeadline.abort(new DOMException('Response headers timed out','TimeoutError')),FIRST_STEP_HEADERS_TIMEOUT_MS);
+    let response:Response;
+    try{
+      signal.throwIfAborted();
+      response=await this.transport(url,{method:'POST',redirect:'manual',signal,headers:{Cookie:session.cookies,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(form).toString()});
+      signal.throwIfAborted();
+    }catch(error){
+      if(error instanceof CollectorError)throw error;
+      throw trace.failure('response_headers');
+    }finally{
+      if(headerTimer!==undefined)clearTimeout(headerTimer);
+    }
+
+    trace.headers(response.status);
+    if(response.status===401||response.status===403){trace.httpError();this.session=null;throw new CollectorError('AUTH_EXPIRED');}
+    if(response.status!==200){trace.httpError();await response.body?.cancel();throw new CollectorError(response.status===429?'UPSTREAM_RATE_LIMITED':'UPSTREAM_HTTP_ERROR');}
+    let raw:string;
+    try{
+      raw=await boundedText(response,undefined,trace.reader);
+      signal.throwIfAborted();
+      trace.received();
+    }catch(error){
+      if(error instanceof CollectorError){trace.bodyError();throw error;}
+      throw trace.failure('response_body');
+    }
+    let body:Record<string,unknown>;
+    try{body=object(JSON.parse(raw.startsWith('{')?raw:text(rc4(key,unb64(raw)))));}catch{throw new CollectorError('INVALID_CLOUD_RESPONSE');}
+    const code=body.code,message=String(body.message??'').toLowerCase();
+    if([401,403,-6,-10001,2].includes(Number(code))||['authentication failed','invalid credential','invalid pass token','login required','not logged in','session expired','unauthorized'].some(v=>message.includes(v))){this.session=null;throw new CollectorError('AUTH_EXPIRED');}
+    if(code!==0)throw new CollectorError('UPSTREAM_BUSINESS_ERROR');
+    return object(body.result??{});
   }
   async page(key:MetricKey,start:string,end:string,cursor:string|null):Promise<Page>{
     const times=dateRange(start,end),payload:Record<string,unknown>={start_time:times.start,end_time:times.end};

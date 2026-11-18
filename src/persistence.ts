@@ -79,7 +79,7 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   const table=sportRecheck?'live_sport_recheck':plan==='live'?'sync_jobs':'sync_history';
   const advancePage=()=>{if(sportRecheck)job.complete=1;else advance(primary);};
   if(job.complete&&!pendingNative)return {status:'already_current',liveThrough:live.end_date,historyComplete:plan==='history'};
-  const adapter=new MiFitnessAdapter(transport,undefined,undefined,{totalWaitMs:1500,maxWaitMs:1000});await adapter.login(env.MI_USER_ID,env.MI_PASS_TOKEN);
+  const adapter=new MiFitnessAdapter(transport,undefined,undefined,{retryStepHeaders:plan==='live'});await adapter.login(env.MI_USER_ID,env.MI_PASS_TOKEN);
   const started=Date.now(),budget=options.budgetMs??45000;
   // A short MCP batch gives pending files their own turn before more metric pages.
   const nativeOnly=pendingNative>0&&(!!job.complete||(options.liveOnly&&budget<nativeStartBudgetMs));

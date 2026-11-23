@@ -20,7 +20,7 @@ import type {Env} from './verification.js';
 export interface Statement {bind(...v:unknown[]):Statement;run():Promise<{meta:{changes:number}}> ;first<T=Record<string,unknown>>():Promise<T|null>;all<T=Record<string,unknown>>():Promise<{results:T[]}>;}
 export interface Database {prepare(q:string):Statement;batch(q:Statement[]):Promise<unknown>;}
 export interface PersistentEnv extends Env {DB?:Database;PERSIST_SYNC_ENABLED?:string;}
-type Job={start_date:string;end_date:string;metric_index:number;current_date:string;cursor:string|null;seen_json:string;complete:number;lease_token:string|null;lease_until:number;updated_at:number;run_id?:string|null;run_started_at?:number|null;run_error_code?:string|null};
+type Job={resting_hr_retry_after?:number|null;start_date:string;end_date:string;metric_index:number;current_date:string;cursor:string|null;seen_json:string;complete:number;lease_token:string|null;lease_until:number;updated_at:number;run_id?:string|null;run_started_at?:number|null;run_error_code?:string|null};
 const hash=async(v:string)=>b64(await digest('SHA-256',utf8(v)));
 export function stripCredentials(v:unknown):unknown{if(typeof v==='string'&&/^[\[{]/.test(v.trim())){try{return JSON.stringify(stripCredentials(JSON.parse(v)));}catch{return v;}}if(Array.isArray(v))return v.map(stripCredentials);if(v&&typeof v==='object'){const o:Record<string,unknown>={};for(const [k,x] of Object.entries(v)){if(/token|cookie|password|ssecurity|authorization|userid|cuserid/i.test(k.replace(/[_-]/g,'')))continue;o[k]=stripCredentials(x);}return o;}return v;}
 function db(env:PersistentEnv){if(!env.DB)throw new CollectorError('DATABASE_NOT_READY');return env.DB;}
@@ -59,7 +59,7 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
  // Descending dates: today's partial data is always processed before yesterday.
  const pendingNative=live?(await nativeSyncState(env,live.start_date,live.end_date)).pending:0;
  if(!live||live.end_date<today||(live.complete&&!pendingNative&&now-live.updated_at>=(options.refreshAfterMs??20*60000))){
-  const start=addDays(today,-1);await d.prepare(`INSERT INTO sync_jobs(id,start_date,end_date,metric_index,current_date,cursor,complete,lease_until,updated_at,run_id,run_started_at,run_error_code) VALUES(1,?,?,0,?,NULL,0,0,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET start_date=excluded.start_date,end_date=excluded.end_date,metric_index=0,current_date=excluded.current_date,cursor=NULL,seen_json='[]',complete=0,updated_at=excluded.updated_at,run_id=excluded.run_id,run_started_at=excluded.run_started_at,run_error_code=NULL WHERE sync_jobs.lease_until<=?`).bind(start,today,today,now,crypto.randomUUID(),Date.now(),Date.now()).run();
+  const start=addDays(today,-1);await d.prepare(`INSERT INTO sync_jobs(id,start_date,end_date,metric_index,current_date,cursor,complete,lease_until,updated_at,run_id,run_started_at,run_error_code) VALUES(1,?,?,0,?,NULL,0,0,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET start_date=excluded.start_date,end_date=excluded.end_date,metric_index=0,current_date=excluded.current_date,cursor=NULL,seen_json='[]',complete=0,updated_at=excluded.updated_at,run_id=excluded.run_id,run_started_at=excluded.run_started_at,run_error_code=NULL,resting_hr_retry_after=NULL WHERE sync_jobs.lease_until<=?`).bind(start,today,today,now,crypto.randomUUID(),Date.now(),Date.now()).run();
  }
  const oldest=addDays(today,-364),histEnd=addDays(today,-2);if(!options.liveOnly)await d.prepare('INSERT OR IGNORE INTO sync_history(id,start_date,end_date,metric_index,current_date,updated_at) VALUES(1,?,?,0,?,?)').bind(oldest,histEnd,histEnd,now).run();
  const acquired=await d.prepare('UPDATE sync_jobs SET lease_token=?,lease_until=? WHERE id=1 AND lease_until<=?').bind(token,Date.now()+180000,Date.now()).run();if(!acquired.meta.changes)throw new CollectorError('SYNC_BUSY');
@@ -84,11 +84,35 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   // A short MCP batch gives pending files their own turn before more metric pages.
   const nativeOnly=pendingNative>0&&(!!job.complete||(options.liveOnly&&budget<nativeStartBudgetMs));
   if(!nativeOnly&&!sportRecheck&&!job.complete)await fetchActivityDetails(env,adapter,...(options.liveOnly?[live.start_date,live.end_date] as [string,string]:[] as []));
+  let retryAfter=live.resting_hr_retry_after??null;
+  let retryDeferred=false;
   while(!nativeOnly&&pages<(options.maxPages??12)&&!job.complete&&Date.now()-started<budget){const key=keys[job.metric_index];if(!key)throw new CollectorError('SYNC_STATE_INVALID');let page;
-   try{failureMetric=key;failureDate=job.current_date;page=await adapter.page(key,job.current_date,job.current_date,job.cursor);}catch(e){const code=safeError(e);await log(d,'failed',key,job.current_date,0,code);await capability(d,key,'error',0,code);if(sportRecheck||['AUTH_EXPIRED','INTERACTIVE_AUTH_REQUIRED','UPSTREAM_HTTP_ERROR','UPSTREAM_RATE_LIMITED','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','UPSTREAM_RETRY_DEFERRED','NETWORK_FAILURE','UPSTREAM_RETRY_EXHAUSTED','PAGE_RECORD_LIMIT'].includes(code))throw e;failures++;advancePage();await checkpoint(d,job,token,table);pages++;continue;}
+   const restingPage=table==='sync_jobs'&&key==='resting_heart_rate';
+   const isRetry=restingPage&&retryAfter!==null;
+   if(isRetry){
+    const wait=Math.max(0,retryAfter!-Date.now());
+    if(wait)await new Promise(resolve=>setTimeout(resolve,wait));
+    await log(d,'retry_attempt_2',key,job.current_date);
+   }
+   try{
+    failureMetric=key;failureDate=job.current_date;
+    page=await adapter.page(key,job.current_date,job.current_date,job.cursor);
+   }catch(e){
+    const code=safeError(e);
+    const detail=e instanceof CollectorError?e.request_failure:undefined;
+    if(restingPage&&!isRetry&&code==='NETWORK_FAILURE'&&detail?.stage==='response_headers'&&detail.kind==='timeout'){
+     retryAfter=Date.now()+500;
+     const saved=await d.prepare('UPDATE sync_jobs SET resting_hr_retry_after=? WHERE id=1 AND lease_token=? AND lease_until>?').bind(retryAfter,token,Date.now()).run();
+     if(!saved.meta.changes)throw new CollectorError('SYNC_LEASE_LOST');
+     await log(d,'attempt_1_header_timeout',key,job.current_date,0,code);
+     if(started+budget-retryAfter<detail.timeout_cap_ms){retryDeferred=true;break;}
+     continue;
+    }
+    await log(d,'failed',key,job.current_date,0,code);await capability(d,key,'error',0,code);if(sportRecheck||['AUTH_EXPIRED','INTERACTIVE_AUTH_REQUIRED','UPSTREAM_HTTP_ERROR','UPSTREAM_RATE_LIMITED','UPSTREAM_BUSINESS_ERROR','INVALID_CLOUD_RESPONSE','RESPONSE_TOO_LARGE','UPSTREAM_RETRY_DEFERRED','NETWORK_FAILURE','UPSTREAM_RETRY_EXHAUSTED','PAGE_RECORD_LIMIT'].includes(code))throw e;failures++;advancePage();await checkpoint(d,job,token,table);pages++;continue;}
    const seen=JSON.parse(job.seen_json) as string[];if(page.hasMore&&(!page.nextKey||page.nextKey===job.cursor||seen.includes(page.nextKey)||seen.length>=100))throw new CollectorError('CURSOR_LOOP');
    await saveRecords(d,key,page.records,Date.now());if(page.rejected?.length)await saveRejectedRecords(d,key,job.current_date,job.current_date,page.rejected,Date.now());touched.add(job.current_date);processed+=page.records.length;pages++;await log(d,'page_committed',key,job.current_date,page.records.length);if(page.rejected?.length){quarantined+=page.rejected.length;await log(d,'page_quarantined',key,job.current_date,page.rejected.length,'SOURCE_RECORDS_QUARANTINED');}await capability(d,key,page.records.length?'data_returned':'no_records_in_range',page.records.length,null);
    if(page.hasMore){job.cursor=page.nextKey;job.seen_json=JSON.stringify([...seen,page.nextKey]);}else advancePage();await checkpoint(d,job,token,table);
+   if(isRetry){retryAfter=null;await log(d,'retry_succeeded',key,failureDate);}
   }
   failureMetric=null;failureDate=null;
   for(const date of touched)await summarize(d,date,Date.now());
@@ -97,13 +121,13 @@ export async function runPersistentSync(env:PersistentEnv,transport:Fetcher=nati
   const nativeFiles=await nativeSyncState(env,live.start_date,live.end_date);
   const latest=await d.prepare('SELECT complete,end_date FROM sync_jobs WHERE id=1').first<{complete:number;end_date:string}>();const hist=await d.prepare('SELECT complete FROM sync_history WHERE id=1').first<{complete:number}>();
   const next=sportRecheck&&!sportRecheck.complete?sportRecheck:primary;
-  return {status:latest?.complete&&hist?.complete&&!nativeFiles.pending?'complete':'partial',plan,pages,recordsProcessed:processed,failedPages:failures,quarantinedRecords:quarantined,data_quality:quarantined?'partial_source_records_quarantined':'no_new_quarantined_records',sport_recheck:!!sportRecheck,startDate:primary.start_date,endDate:primary.end_date,liveThrough:latest?.end_date,liveComplete:!!latest?.complete,historyComplete:!!hist?.complete,native_file_batch:nativeFile,native_files:nativeFiles,nextMetric:next.complete?null:keys[next.metric_index],nextDate:next.complete?null:next.current_date,todayIsPartial:true};
+  return {retry_deferred:retryDeferred,sync_id:live.run_id,status:latest?.complete&&hist?.complete&&!nativeFiles.pending?'complete':'partial',plan,pages,recordsProcessed:processed,failedPages:failures,quarantinedRecords:quarantined,data_quality:quarantined?'partial_source_records_quarantined':'no_new_quarantined_records',sport_recheck:!!sportRecheck,startDate:primary.start_date,endDate:primary.end_date,liveThrough:latest?.end_date,liveComplete:!!latest?.complete,historyComplete:!!hist?.complete,native_file_batch:nativeFile,native_files:nativeFiles,nextMetric:next.complete?null:keys[next.metric_index],nextDate:next.complete?null:next.current_date,todayIsPartial:true};
  }catch(e){const code=syncErrorCode(e),at=Date.now();await log(d,'failed',null,null,0,code);if(failurePlan==='live'){await d.prepare('UPDATE sync_jobs SET run_error_code=?,updated_at=? WHERE id=1 AND lease_token=?').bind(code,at,token).run();try{await saveSyncFailure(d,live?.run_id??null,e,failureMetric,failureDate,at);}catch{await log(d,'diagnostic_unavailable',null,null,0,'SYNC_DIAGNOSTIC_SAVE_FAILED');}}throw e;}finally{await d.prepare('UPDATE sync_jobs SET lease_token=NULL,lease_until=0 WHERE id=1 AND lease_token=?').bind(token).run();}
 }
 function advance(j:Job){j.cursor=null;j.seen_json='[]';j.metric_index++;if(j.metric_index>=keys.length){j.metric_index=0;if(j.current_date>j.start_date)j.current_date=addDays(j.current_date,-1);else j.complete=1;}}
 async function capability(d:Database,key:string,status:string,count:number,error:string|null){await d.prepare('INSERT INTO metric_capabilities(metric,last_checked,status,last_count,error_code) VALUES(?,?,?,?,?) ON CONFLICT(metric) DO UPDATE SET last_checked=excluded.last_checked,status=excluded.status,last_count=excluded.last_count,error_code=excluded.error_code').bind(key,Date.now(),status,count,error).run();}
 async function checkpoint(d:Database,j:PageCheckpoint,token:string,table:'sync_jobs'|'sync_history'|'live_sport_recheck'='sync_jobs'){
- const r=await d.prepare(`UPDATE ${table} SET metric_index=?,current_date=?,cursor=?,seen_json=?,complete=?,updated_at=? WHERE id=1 AND EXISTS(SELECT 1 FROM sync_jobs WHERE id=1 AND lease_token=? AND lease_until>?)`).bind(j.metric_index,j.current_date,j.cursor,j.seen_json,j.complete,Date.now(),token,Date.now()).run();if(!r.meta.changes)throw new CollectorError('SYNC_LEASE_LOST');
+ const r=await d.prepare(`UPDATE ${table} SET metric_index=?,current_date=?,cursor=?,seen_json=?,complete=?,updated_at=? ${table==='sync_jobs'?',resting_hr_retry_after=NULL':''} WHERE id=1 AND EXISTS(SELECT 1 FROM sync_jobs WHERE id=1 AND lease_token=? AND lease_until>?)`).bind(j.metric_index,j.current_date,j.cursor,j.seen_json,j.complete,Date.now(),token,Date.now()).run();if(!r.meta.changes)throw new CollectorError('SYNC_LEASE_LOST');
  await d.prepare('UPDATE sync_jobs SET lease_until=? WHERE id=1 AND lease_token=?').bind(Date.now()+180000,token).run();
 }
 export function validRange(start:unknown,end:unknown,max=90){if(typeof start!=='string'||typeof end!=='string')throw new CollectorError('DATE_PARAMETERS_REQUIRED');const r=dateRange(start,end);if(r.end-r.start>=max*86400)throw new CollectorError('QUERY_RANGE_TOO_LONG');return {start,end};}

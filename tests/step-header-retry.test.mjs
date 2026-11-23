@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare} from 'miniflare';
-import {MiFitnessAdapter,runPersistentSync,getSyncProgress} from '../worker/index.js';
+import {MiFitnessAdapter,runPersistentSync,getSyncProgress,networkFailure} from '../worker/index.js';
 import {createHash} from 'node:crypto';
 
 const now=Date.now();
@@ -184,4 +184,55 @@ test('HTTP and transport failures do not retry, and other metrics keep their ful
   await a.page('heart_rate',date,date,null);
   await a.page('steps_daily_aggregate',date,date,null);
   assert.equal(shortTimers,3);
+});
+
+for (const [scenario,budgetMs,failTwice] of [
+  ['same batch',45000,false], ['next batch',18000,false], ['two timeouts',18000,true]
+]){
+  test('resting heart rate retries the original page once: '+scenario,async t=>{
+    const runId=crypto.randomUUID();
+    await db.prepare(`INSERT OR REPLACE INTO sync_jobs
+      (id,start_date,end_date,metric_index,current_date,cursor,updated_at,run_id,run_started_at)
+      VALUES(1,?,?,4,?,?,?,?,?)`).bind(date,date,date,cursor,now,runId,now).run();
+    t.mock.method(MiFitnessAdapter.prototype,'login',async()=>{});
+    let calls=0;
+    t.mock.method(MiFitnessAdapter.prototype,'page',async(key,start,end,next)=>{
+      assert.deepEqual([key,start,end,next],['resting_heart_rate',date,date,cursor]);
+      if(++calls===1||failTwice)throw networkFailure(AbortSignal.abort(timeoutReason()),Date.now()-20000,'fitness_data','response_headers');
+      return {records:[],hasMore:false,nextKey:null};
+    });
+    const batch=()=>runPersistentSync(env(),undefined,now,{liveOnly:true,maxPages:1,budgetMs});
+    if(budgetMs===18000){
+      const partial=await batch();
+      assert.equal(partial.retry_deferred,true);
+      assert.equal(partial.pages,0);
+      assert.equal(calls,1);
+      assert.equal((await checkpoint()).cursor,cursor);
+    }
+    if(failTwice){
+      await assert.rejects(batch(),{code:'NETWORK_FAILURE'});
+      await assert.rejects(batch(),{code:'NETWORK_FAILURE'});
+      assert.equal((await checkpoint()).cursor,cursor);
+    }else{
+      assert.equal((await batch()).pages,1);
+      assert.equal((await checkpoint()).metric_index,5);
+      assert.equal((await db.prepare('SELECT resting_hr_retry_after FROM sync_jobs').first()).resting_hr_retry_after,null);
+    }
+    assert.equal((await checkpoint()).run_id,runId);
+    assert.equal(calls,2);
+  });
+}
+
+test('resting heart rate body timeout bypasses the header retry',async t=>{
+  const runId=crypto.randomUUID();
+  await db.prepare(`UPDATE sync_jobs SET run_id=?,run_error_code=NULL,resting_hr_retry_after=NULL
+    WHERE id=1`).bind(runId).run();
+  t.mock.method(MiFitnessAdapter.prototype,'login',async()=>{});
+  const read=t.mock.method(MiFitnessAdapter.prototype,'page',async()=>{
+    throw networkFailure(AbortSignal.abort(timeoutReason()),Date.now()-20000,'fitness_data','response_body',200);
+  });
+  await assert.rejects(runPersistentSync(env(),undefined,now,{liveOnly:true,maxPages:1}),{code:'NETWORK_FAILURE'});
+  assert.equal(read.mock.callCount(),1);
+  assert.equal((await checkpoint()).cursor,cursor);
+  assert.equal((await db.prepare('SELECT resting_hr_retry_after FROM sync_jobs').first()).resting_hr_retry_after,null);
 });

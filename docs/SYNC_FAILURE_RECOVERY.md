@@ -50,3 +50,13 @@ Recent web and MCP syncs retry a daily step page once if the first request reach
 Other metrics, step aggregates, history backfill and operator verification use their existing request policies. There is no retry after receiving headers, an authentication or rate-limit response, or a transport failure that did not exhaust the first header timer. A second failure uses the existing explicit recovery path and preserves the page checkpoint. Only a successfully returned page can advance the cursor and be committed.
 
 For an eligible request, the existing transfer logs include `retry.attempt`. The first attempt includes `retry.headers_timeout_ms` and the second includes `retry.retry_of_request_id`, linking it to the initial failure. If the second transfer fails at the network layer, that link is also retained in the durable failure diagnostic. `timeout_cap_ms` remains the total configured budget and `elapsed_ms` measures the individual transfer attempt.
+
+## Resting heart rate in recent syncs
+
+Both attempts retain the full 20-second request timeout. A timeout before response headers
+records `attempt_1_header_timeout` and leaves the current page in place. The earliest retry
+time is persisted with the live checkpoint. After at least 500 ms, the same batch retries
+if it has a full request budget left. Otherwise the next batch for that sync ID retries.
+The dashboard requests this continuation once. MCP callers follow the normal partial-result
+continuation. Look for `retry_attempt_2` followed by `retry_succeeded` or the page failure.
+A second header timeout latches the existing manual recovery state.

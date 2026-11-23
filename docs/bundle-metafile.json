@@ -320,7 +320,7 @@
       "format": "esm"
     },
     "src/mcp-sync.ts": {
-      "bytes": 7898,
+      "bytes": 10068,
       "imports": [
         {
           "path": "src/freshness.ts",
@@ -367,7 +367,7 @@
       "format": "esm"
     },
     "src/persistence.ts": {
-      "bytes": 41310,
+      "bytes": 46906,
       "imports": [
         {
           "path": "src/ingestion-quarantine.ts",
@@ -552,7 +552,7 @@
       "format": "esm"
     },
     "src/dashboard.ts": {
-      "bytes": 25932,
+      "bytes": 26641,
       "imports": [],
       "format": "esm"
     },
@@ -902,13 +902,13 @@
           "bytesInOutput": 943
         },
         "src/persistence.ts": {
-          "bytesInOutput": 44605
+          "bytesInOutput": 50350
         },
         "src/workout-analysis.ts": {
           "bytesInOutput": 7408
         },
         "src/mcp-sync.ts": {
-          "bytesInOutput": 7864
+          "bytesInOutput": 10020
         },
         "src/hrv-cloud-probe.ts": {
           "bytesInOutput": 5084
@@ -926,13 +926,13 @@
           "bytesInOutput": 18422
         },
         "src/dashboard.ts": {
-          "bytesInOutput": 29723
+          "bytesInOutput": 30491
         },
         "src/verification.ts": {
           "bytesInOutput": 2655
         }
       },
-      "bytes": 234791
+      "bytes": 262610
     }
   }
 }
